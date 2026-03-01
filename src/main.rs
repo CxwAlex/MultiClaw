@@ -1123,7 +1123,16 @@ async fn main() -> Result<()> {
             integration_command,
         } => integrations::handle_command(integration_command, &config),
 
-        Commands::Skills { skill_command } => skills::handle_command(skill_command, &config),
+        Commands::Skills { skill_command } => {
+            // 使用阻塞方式执行技能命令，因为 handle_command 是异步的
+            let config_ref = &config;
+            tokio::task::spawn(async move {
+                if let Err(e) = skills::handle_command(skill_command, config_ref).await {
+                    eprintln!("Error handling skill command: {}", e);
+                }
+            });
+            Ok(())
+        },
 
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await

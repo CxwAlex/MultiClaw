@@ -31,6 +31,12 @@ pub enum ResourceType {
     Custom(String),
 }
 
+impl Default for ResourceType {
+    fn default() -> Self {
+        ResourceType::Compute
+    }
+}
+
 /// 资源配额结构
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceQuota {
@@ -45,7 +51,7 @@ pub struct ResourceQuota {
 }
 
 /// 资源使用情况
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ResourceUsage {
     /// 资源类型
     pub resource_type: ResourceType,

@@ -161,8 +161,7 @@ impl PromptSection for SkillsSection {
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
         Ok(crate::skills::skills_to_prompt_with_mode(
             ctx.skills,
-            ctx.workspace_dir,
-            ctx.skills_prompt_mode,
+            "default"  // 使用默认模式，因为我们简化了函数
         ))
     }
 }

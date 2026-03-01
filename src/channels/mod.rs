@@ -3950,8 +3950,7 @@ pub fn build_system_prompt_with_mode(
     if !skills.is_empty() {
         prompt.push_str(&crate::skills::skills_to_prompt_with_mode(
             skills,
-            workspace_dir,
-            skills_prompt_mode,
+            "default"  // 使用默认模式，因为我们简化了函数
         ));
         prompt.push_str("\n\n");
     }
