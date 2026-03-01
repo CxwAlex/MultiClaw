@@ -78,6 +78,9 @@ aho-corasick = "1.1"
 # UUID generation
 uuid = { version = "1.11", default-features = false, features = ["v4", "std"] }
 
+# Concurrent hash map for thread-safe data structures
+dashmap = { version = "6.1", default-features = false }
+
 # Authenticated encryption (AEAD) for secret store
 chacha20poly1305 = "0.10"
 

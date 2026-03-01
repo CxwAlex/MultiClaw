@@ -39,12 +39,14 @@
 use clap::Subcommand;
 use serde::{Deserialize, Serialize};
 
+pub mod a2a;
 pub mod agent;
 pub(crate) mod approval;
 pub(crate) mod auth;
 pub mod channels;
 pub mod config;
 pub mod coordination;
+pub mod core;
 pub(crate) mod cost;
 pub(crate) mod cron;
 pub(crate) mod daemon;

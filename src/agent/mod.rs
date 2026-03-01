@@ -1,5 +1,6 @@
 #[allow(clippy::module_inception)]
 pub mod agent;
+pub mod chairman;
 pub mod classifier;
 pub mod dispatcher;
 pub mod loop_;
@@ -13,4 +14,7 @@ mod tests;
 #[allow(unused_imports)]
 pub use agent::{Agent, AgentBuilder};
 #[allow(unused_imports)]
+pub use chairman::ChairmanAgent;
+#[allow(unused_imports)]
 pub use loop_::{process_message, run};
+

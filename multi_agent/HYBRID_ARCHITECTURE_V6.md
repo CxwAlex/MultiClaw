@@ -1,10 +1,11 @@
 # MultiClaw 多 Agent 集群架构方案 v6.0 - 全局可观测版
 
-> **版本**: v6.0 - 全局可观测架构（五层设计 + A2A 通信 + 四层看板）
+> **版本**: v6.0 - 全局可观测架构（五层设计 + A2A 通信 + 四层看板 + 故障恢复）
 > **创建日期**: 2026 年 3 月 1 日
+> **更新日期**: 2026 年 3 月 1 日
 > **优先级**: P0 - 核心能力
 > **状态**: 待审批
-> **架构理念**: 全局董事长分身 + 企业组织模式 + 核心硬实现 + 编排 Skills 化 + A2A 通信
+> **架构理念**: 全局董事长分身 + 企业组织模式 + 核心硬实现 + 编排 Skills 化 + A2A 通信 + 故障自愈
 
 ---
 
@@ -23,6 +24,7 @@
 | **实例管理** | 多实例 (分公司) | 单实例 | ✅ **多实例 + 看板** | 规模化扩展 |
 | **快速创建** | ✅ CLI/Telegram/Web | ❌ | ✅ **保留** | 使用门槛高 |
 | **记忆共享** | ❌ | ✅ 分级共享 | ✅ **四级共享** | 知识孤岛 |
+| **故障恢复** | ❌ | ❌ | ✅ **Checkpoint + 自动恢复** | 宕机数据丢失 |
 
 ### 1.2 核心架构决策
 
@@ -59,6 +61,10 @@
 **问题 4**: 如何提供完整可观测性？
 
 **答案**: **五层看板** - 用户/董事长/CEO/团队/Agent，每层独立视角
+
+**问题 5**: 实例宕机后如何恢复任务和数据？
+
+**答案**: **故障恢复机制** - 任务 Checkpoint + 实例健康监控 + 自动恢复流程
 
 ### 1.3 整体架构（五层设计）
 
@@ -121,6 +127,10 @@
 │  │  │ MemoryCore   │  │ MessageCore  │  │ AuditCore    │   │    │
 │  │  │ + 分级共享    │  │ 消息路由     │  │ + 四层指标   │   │    │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘   │    │
+│  │  ┌──────────────┐  ┌──────────────┐                    │    │
+│  │  │ RecoveryCore │  │CheckpointMgr │   ← 新增：故障恢复  │    │
+│  │  │ 实例恢复     │  │ 任务快照     │                    │    │
+│  │  └──────────────┘  └──────────────┘                    │    │
 │  └─────────────────────────────────────────────────────────┘    │
 │                              │                                   │
 │                              ▼                                   │
@@ -153,6 +163,9 @@
 CEO 办公系统        →    CEO Dashboard
 部门看板            →    Team Dashboard
 员工工作台          →    Agent Dashboard
+──────────────────────────────────────────────────
+业务连续性计划      →    故障恢复机制 (RecoveryCore)
+工作交接文档        →    任务 Checkpoint (CheckpointMgr)
 ──────────────────────────────────────────────────
 ```
 
@@ -237,6 +250,8 @@ pub enum InstanceStatus {
     Idle,
     Busy,
     Unhealthy,
+    Recovering,    // 恢复中 (新增)
+    RecoveryFailed, // 恢复失败 (新增)
     Stopped,
 }
 
@@ -1354,7 +1369,610 @@ impl MemorySharingManager {
 
 ---
 
-## 七、实现计划（14 周）
+## 七、故障恢复机制
+
+### 7.1 设计原则
+
+| 原则 | 说明 | 实现方式 |
+|------|------|---------|
+| **故障检测** | 及时发现实例宕机 | 心跳监控 + 健康检查 |
+| **状态持久化** | 任务状态不丢失 | Checkpoint 定期保存 |
+| **自动恢复** | 减少人工干预 | RecoveryCore 自动重建 |
+| **降级策略** | 通信故障时保证消息不丢 | 消息持久化 + 重试 |
+| **用户通知** | 恢复过程透明 | 董事长 Agent 推送 |
+
+### 7.2 实例健康监控
+
+```rust
+// src/recovery/health_monitor.rs
+
+/// 实例健康状态
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum InstanceHealthStatus {
+    Healthy,       // 正常运行
+    Degraded,      // 部分功能异常
+    Unhealthy,     // 需要恢复
+    Dead,          // 无响应
+}
+
+/// 实例心跳
+#[derive(Clone, Serialize, Deserialize)]
+pub struct InstanceHeartbeat {
+    pub instance_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub status: InstanceHealthStatus,
+    pub active_tasks: usize,
+    pub active_agents: usize,
+    pub memory_usage_mb: f64,
+    pub cpu_usage_percent: f64,
+}
+
+/// 实例健康监控器
+pub struct InstanceHealthMonitor {
+    /// 心跳超时阈值（秒）
+    heartbeat_timeout_secs: u64,
+    /// 实例最后心跳时间
+    last_heartbeats: DashMap<String, DateTime<Utc>>,
+    /// 故障检测任务句柄
+    monitor_handle: Option<JoinHandle<()>>,
+}
+
+impl InstanceHealthMonitor {
+    /// 启动故障检测循环
+    pub async fn start(&mut self, chairman: Arc<ChairmanAgent>) {
+        let timeout = self.heartbeat_timeout_secs;
+        self.monitor_handle = Some(tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                interval.tick().await;
+                chairman.detect_failed_instances(timeout).await;
+            }
+        }));
+    }
+    
+    /// 接收实例心跳
+    pub fn record_heartbeat(&self, heartbeat: InstanceHeartbeat) {
+        self.last_heartbeats.insert(
+            heartbeat.instance_id.clone(),
+            Utc::now(),
+        );
+    }
+    
+    /// 检测故障实例
+    pub fn detect_failed_instances(&self, timeout_secs: u64) -> Vec<String> {
+        let cutoff = Utc::now() - chrono::Duration::seconds(timeout_secs as i64);
+        self.last_heartbeats
+            .iter()
+            .filter(|entry| *entry.value() < cutoff)
+            .map(|entry| entry.key().clone())
+            .collect()
+    }
+}
+```
+
+### 7.3 任务 Checkpoint 机制
+
+```rust
+// src/recovery/checkpoint.rs
+
+/// 任务检查点状态
+#[derive(Clone, Serialize, Deserialize)]
+pub enum TaskCheckpointStatus {
+    Running,
+    Paused,
+    Completed,
+    Failed { error: String },
+}
+
+/// 任务检查点
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TaskCheckpoint {
+    pub task_id: String,
+    pub instance_id: String,
+    pub team_id: String,
+    pub agent_id: String,
+    pub created_at: DateTime<Utc>,
+    pub status: TaskCheckpointStatus,
+    /// 已完成的步骤
+    pub completed_steps: Vec<StepResult>,
+    /// 当前执行步骤
+    pub current_step: Option<StepContext>,
+    /// 工作记忆快照
+    pub working_memory: Vec<KnowledgeEntry>,
+    /// 恢复所需上下文
+    pub recovery_context: Value,
+}
+
+/// 检查点管理器
+pub struct CheckpointManager {
+    /// 检查点存储路径
+    checkpoint_dir: PathBuf,
+    /// 自动保存间隔（秒）
+    auto_save_interval_secs: u64,
+    /// 内存中的检查点缓存
+    checkpoints: DashMap<String, TaskCheckpoint>,
+}
+
+impl CheckpointManager {
+    /// 创建检查点
+    pub async fn create_checkpoint(&self, task: &TaskContext) -> Result<TaskCheckpoint> {
+        let checkpoint = TaskCheckpoint {
+            task_id: task.id.clone(),
+            instance_id: task.instance_id.clone(),
+            team_id: task.team_id.clone(),
+            agent_id: task.agent_id.clone(),
+            created_at: Utc::now(),
+            status: TaskCheckpointStatus::Running,
+            completed_steps: task.completed_steps.clone(),
+            current_step: task.current_step.clone(),
+            working_memory: task.agent.memory.snapshot(),
+            recovery_context: task.recovery_context.clone(),
+        };
+        
+        // 持久化到磁盘
+        self.persist_checkpoint(&checkpoint).await?;
+        
+        // 缓存到内存
+        self.checkpoints.insert(task.id.clone(), checkpoint.clone());
+        
+        Ok(checkpoint)
+    }
+    
+    /// 从检查点恢复任务
+    pub async fn restore_task(&self, task_id: &str) -> Result<TaskContext> {
+        let checkpoint = self.load_checkpoint(task_id).await?;
+        
+        Ok(TaskContext {
+            id: checkpoint.task_id,
+            instance_id: checkpoint.instance_id,
+            team_id: checkpoint.team_id,
+            agent_id: checkpoint.agent_id,
+            completed_steps: checkpoint.completed_steps,
+            current_step: checkpoint.current_step,
+            recovery_context: checkpoint.recovery_context,
+            is_recovery: true,
+        })
+    }
+    
+    /// 列出实例的所有检查点
+    pub async fn list_instance_checkpoints(&self, instance_id: &str) -> Vec<TaskCheckpoint> {
+        self.checkpoints
+            .iter()
+            .filter(|entry| entry.value().instance_id == instance_id)
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+    
+    /// 清理已完成的检查点
+    pub async fn cleanup_completed(&self, max_age_hours: u64) -> Result<usize> {
+        let mut cleaned = 0;
+        let cutoff = Utc::now() - chrono::Duration::hours(max_age_hours as i64);
+        
+        for entry in std::fs::read_dir(&self.checkpoint_dir)? {
+            let path = entry?.path();
+            if let Ok(checkpoint) = self.load_checkpoint_from_path(&path).await {
+                if matches!(checkpoint.status, TaskCheckpointStatus::Completed) 
+                    && checkpoint.created_at < cutoff 
+                {
+                    std::fs::remove_file(&path)?;
+                    cleaned += 1;
+                }
+            }
+        }
+        
+        Ok(cleaned)
+    }
+}
+```
+
+### 7.4 实例恢复流程
+
+```rust
+// src/recovery/recovery.rs
+
+/// 恢复策略
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RecoveryPolicy {
+    /// 是否自动恢复
+    pub auto_recover: bool,
+    /// 最大重试次数
+    pub max_recovery_attempts: u32,
+    /// 恢复间隔（秒）
+    pub recovery_interval_secs: u64,
+    /// 是否保留工作记忆
+    pub preserve_working_memory: bool,
+    /// 是否通知用户
+    pub notify_user: bool,
+}
+
+/// 实例恢复管理器
+pub struct InstanceRecoveryManager {
+    checkpoint_manager: Arc<CheckpointManager>,
+    chairman: Arc<ChairmanAgent>,
+    recovery_policy: RecoveryPolicy,
+}
+
+/// 恢复结果
+#[derive(Clone, Serialize, Deserialize)]
+pub enum RecoveryResult {
+    Success {
+        instance_id: String,
+        recovered_tasks: usize,
+        failed_tasks: usize,
+    },
+    Failed {
+        instance_id: String,
+        error: String,
+    },
+    Skipped {
+        instance_id: String,
+        reason: String,
+    },
+}
+
+impl InstanceRecoveryManager {
+    /// 检测并恢复故障实例
+    pub async fn detect_and_recover(&self) -> Result<Vec<RecoveryResult>> {
+        let mut results = Vec::new();
+        
+        // 1. 检测故障实例
+        let failed_instances = self.detect_failed_instances().await;
+        
+        for instance in failed_instances {
+            // 2. 尝试恢复
+            let result = self.recover_instance(&instance).await;
+            results.push(result);
+        }
+        
+        Ok(results)
+    }
+    
+    /// 恢复单个实例
+    async fn recover_instance(&self, instance: &InstanceHandle) -> RecoveryResult {
+        let instance_id = &instance.id;
+        
+        info!("🔄 开始恢复实例: {} ({})", instance.name, instance_id);
+        
+        // 1. 标记实例为恢复中
+        self.chairman.update_instance_status(instance_id, InstanceStatus::Recovering);
+        
+        // 2. 收集该实例的所有检查点
+        let checkpoints = self.checkpoint_manager
+            .list_instance_checkpoints(instance_id).await;
+        
+        // 3. 释放旧资源
+        self.chairman.global_resource.release(&instance.quota);
+        
+        // 4. 创建新实例
+        match self.chairman.create_instance(&CreateInstanceRequest {
+            name: instance.name.clone(),
+            instance_type: instance.instance_type,
+            quota: instance.quota.clone(),
+            ceo_config: CEOConfig::default(),
+            ceo_channel: instance.ceo_channel.clone(),
+        }).await {
+            Ok(new_instance) => {
+                // 5. 恢复任务
+                let mut recovered_tasks = 0;
+                let mut failed_tasks = 0;
+                
+                for checkpoint in checkpoints {
+                    match self.restore_task_to_instance(&new_instance, &checkpoint).await {
+                        Ok(_) => recovered_tasks += 1,
+                        Err(e) => {
+                            warn!("任务恢复失败: {} - {}", checkpoint.task_id, e);
+                            failed_tasks += 1;
+                        }
+                    }
+                }
+                
+                // 6. 通知用户
+                if self.recovery_policy.notify_user {
+                    self.chairman.notify_user(&format!(
+                        "✅ 实例「{}」已恢复\n恢复任务: {} 个\n失败任务: {} 个",
+                        instance.name, recovered_tasks, failed_tasks
+                    )).await;
+                }
+                
+                RecoveryResult::Success {
+                    instance_id: new_instance.id,
+                    recovered_tasks,
+                    failed_tasks,
+                }
+            }
+            Err(e) => {
+                // 恢复失败
+                self.chairman.update_instance_status(
+                    instance_id, 
+                    InstanceStatus::RecoveryFailed
+                );
+                
+                if self.recovery_policy.notify_user {
+                    self.chairman.notify_user(&format!(
+                        "❌ 实例「{}」恢复失败: {}",
+                        instance.name, e
+                    )).await;
+                }
+                
+                RecoveryResult::Failed {
+                    instance_id: instance_id.clone(),
+                    error: e.to_string(),
+                }
+            }
+        }
+    }
+    
+    /// 恢复任务到新实例
+    async fn restore_task_to_instance(
+        &self, 
+        instance: &InstanceHandle, 
+        checkpoint: &TaskCheckpoint
+    ) -> Result<()> {
+        // 通过 A2A 发送恢复请求到 CEO
+        let recovery_message = A2AMessage {
+            message_id: uuid::Uuid::new_v4().to_string(),
+            sender_id: "recovery_manager".to_string(),
+            sender_instance_id: None,
+            recipient_id: instance.ceo_agent_id.clone(),
+            message_type: A2AMessageType::TaskRecovery {
+                checkpoint: checkpoint.clone(),
+            },
+            priority: MessagePriority::High,
+            timestamp: Utc::now().timestamp(),
+            related_task_id: Some(checkpoint.task_id.clone()),
+            requires_reply: true,
+            timeout_secs: Some(60),
+        };
+        
+        self.chairman.a2a_gateway.send(recovery_message).await?;
+        
+        Ok(())
+    }
+}
+```
+
+### 7.5 董事长状态持久化
+
+```rust
+// src/recovery/chairman_recovery.rs
+
+/// 董事长状态持久化
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ChairmanState {
+    pub user_id: String,
+    pub user_channel: ChannelId,
+    pub instances: Vec<InstanceHandle>,
+    pub global_quota: ResourceQuota,
+    pub created_at: DateTime<Utc>,
+    pub last_updated: DateTime<Utc>,
+}
+
+impl ChairmanAgent {
+    /// 保存状态到磁盘
+    pub async fn persist_state(&self) -> Result<()> {
+        let state = ChairmanState {
+            user_id: self.user_id.clone(),
+            user_channel: self.user_channel.clone(),
+            instances: self.instances.iter()
+                .map(|e| e.value().clone())
+                .collect(),
+            global_quota: self.global_resource.current_quota(),
+            created_at: Utc::now(),
+            last_updated: Utc::now(),
+        };
+        
+        let path = self.state_file_path();
+        let data = serde_json::to_string_pretty(&state)?;
+        tokio::fs::write(&path, data).await?;
+        
+        Ok(())
+    }
+    
+    /// 从磁盘恢复状态
+    pub async fn restore_from_disk(&mut self) -> Result<()> {
+        let path = self.state_file_path();
+        
+        if !path.exists() {
+            return Ok(());
+        }
+        
+        let data = tokio::fs::read_to_string(&path).await?;
+        let state: ChairmanState = serde_json::from_str(&data)?;
+        
+        // 恢复实例
+        for instance in state.instances {
+            self.instances.insert(instance.id.clone(), instance);
+        }
+        
+        info!("✅ 董事长状态已从磁盘恢复: {} 个实例", self.instances.len());
+        
+        Ok(())
+    }
+    
+    fn state_file_path(&self) -> PathBuf {
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("multiclaw")
+            .join("chairman_state.json")
+    }
+}
+```
+
+### 7.6 A2A 通信降级策略
+
+```rust
+// src/a2a/fallback.rs
+
+impl A2AGateway {
+    /// 发送消息（带降级策略）
+    pub async fn send_with_fallback(&self, message: A2AMessage) -> Result<String> {
+        // 尝试直接发送
+        match self.send(message.clone()).await {
+            Ok(id) => return Ok(id),
+            Err(e) => {
+                warn!("A2A 直接发送失败: {}, 尝试降级策略", e);
+            }
+        }
+        
+        // 降级策略 1: 写入持久化队列，等待恢复后重发
+        self.persist_message(&message).await?;
+        
+        // 降级策略 2: 如果是紧急消息，尝试备用通道
+        if message.priority >= MessagePriority::Urgent {
+            if let Some(backup_channel) = self.get_backup_channel(&message.recipient_id).await? {
+                return self.send_via_backup(backup_channel, message).await;
+            }
+        }
+        
+        // 降级策略 3: 返回排队确认
+        Ok(format!("queued:{}", message.message_id))
+    }
+    
+    /// 持久化消息到磁盘
+    async fn persist_message(&self, message: &A2AMessage) -> Result<()> {
+        let path = self.pending_messages_dir()
+            .join(format!("{}.json", message.message_id));
+        
+        let data = serde_json::to_string(message)?;
+        tokio::fs::write(&path, data).await?;
+        
+        Ok(())
+    }
+    
+    /// 重试持久化的消息
+    pub async fn retry_pending_messages(&self) -> Result<usize> {
+        let mut retried = 0;
+        
+        for entry in std::fs::read_dir(self.pending_messages_dir())? {
+            let path = entry?.path();
+            let data = tokio::fs::read_to_string(&path).await?;
+            let message: A2AMessage = serde_json::from_str(&data)?;
+            
+            if self.send(message).await.is_ok() {
+                std::fs::remove_file(&path)?;
+                retried += 1;
+            }
+        }
+        
+        Ok(retried)
+    }
+}
+```
+
+### 7.7 配置项
+
+```toml
+# config.toml 故障恢复配置
+
+[recovery]
+# 是否启用自动恢复
+enabled = true
+
+# 心跳超时阈值（秒）
+heartbeat_timeout_secs = 120
+
+# 检查点自动保存间隔（秒）
+checkpoint_interval_secs = 60
+
+# 检查点保留时间（小时）
+checkpoint_retention_hours = 24
+
+# 最大恢复重试次数
+max_recovery_attempts = 3
+
+# 恢复间隔（秒）
+recovery_interval_secs = 30
+
+# 是否在恢复时通知用户
+notify_user_on_recovery = true
+
+[recovery.chairman]
+# 董事长状态自动保存间隔（秒）
+state_persist_interval_secs = 30
+
+# 董事长故障后是否自动重建
+auto_rebuild = true
+
+[a2a.fallback]
+# 是否启用消息持久化降级
+enable_persistence_fallback = true
+
+# 待重发消息保留时间（小时）
+pending_message_retention_hours = 48
+
+# 重试间隔（秒）
+retry_interval_secs = 60
+```
+
+### 7.8 恢复流程图
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    实例宕机恢复流程                               │
+└─────────────────────────────────────────────────────────────────┘
+
+实例宕机
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  1. 故障检测                             │
+│  - 心跳超时 (120s 无响应)               │
+│  - 健康检查失败                          │
+│  - 用户主动报告                          │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  2. 状态标记                             │
+│  - 标记实例为 Unhealthy                 │
+│  - 通知董事长 Agent                      │
+│  - 记录故障时间                          │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  3. 检查点收集                           │
+│  - 加载该实例所有 TaskCheckpoint        │
+│  - 按 priority 排序                      │
+│  - 统计恢复范围                          │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  4. 资源处理                             │
+│  - 释放旧实例配额                        │
+│  - 检查全局资源是否充足                  │
+│  - 必要时请求用户审批                    │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  5. 实例重建                             │
+│  - 创建新实例                            │
+│  - 初始化 CEO Agent                      │
+│  - 绑定通信通道                          │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  6. 任务恢复                             │
+│  - 按优先级恢复任务                      │
+│  - 注入工作记忆                          │
+│  - 设置恢复上下文                        │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  7. 通知用户                             │
+│  - 发送恢复报告                          │
+│  - 列出恢复/失败任务                     │
+│  - 提供人工干预入口                      │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 八、实现计划（16 周）
 
 | 阶段 | 内容 | 工期 | 里程碑 |
 |------|------|------|--------|
@@ -1364,16 +1982,17 @@ impl MemorySharingManager {
 | **Phase 4** | 四层可观测性看板 | 2 周 | M4: Dashboard 完成 |
 | **Phase 5** | 快速创建入口 | 2 周 | M5: CLI/Telegram/Web完成 |
 | **Phase 6** | 分级记忆共享 | 1 周 | M6: 记忆共享完成 |
-| **Phase 7** | 核心层优化 | 1 周 | M7: 性能优化完成 |
-| **Phase 8** | 测试 + 文档 | 3 周 | M8: 测试覆盖>80% |
+| **Phase 7** | **故障恢复机制** | **2 周** | **M7: Checkpoint + RecoveryCore 完成** |
+| **Phase 8** | 核心层优化 | 1 周 | M8: 性能优化完成 |
+| **Phase 9** | 测试 + 文档 | 3 周 | M9: 测试覆盖>80% |
 
-**总计**: 14 周
+**总计**: 16 周
 
 ---
 
-## 八、验收标准
+## 九、验收标准
 
-### 8.1 全局层验收
+### 9.1 全局层验收
 
 - [ ] 董事长 Agent 启动时自动创建
 - [ ] 支持多实例管理（≥10 个实例）
@@ -1381,7 +2000,7 @@ impl MemorySharingManager {
 - [ ] 信息聚合定时执行（每 60 秒）
 - [ ] 噪音过滤正确率 >90%
 
-### 8.2 A2A 通信验收
+### 9.2 A2A 通信验收
 
 - [ ] 团队内通信正常（L2）
 - [ ] 跨团队通信正常（L3）
@@ -1389,7 +2008,7 @@ impl MemorySharingManager {
 - [ ] 权限验证正确率 100%
 - [ ] 审计日志完整记录
 
-### 8.3 可观测性验收
+### 9.3 可观测性验收
 
 - [ ] 五层看板数据完整
 - [ ] 用户看板 Telegram/Web 可用
@@ -1397,7 +2016,7 @@ impl MemorySharingManager {
 - [ ] CEO/团队/Agent 看板 API 正常
 - [ ] 指标聚合延迟 <60 秒
 
-### 8.4 快速创建验收
+### 9.4 快速创建验收
 
 - [ ] CLI 快速创建命令可用
 - [ ] Telegram Bot 快速创建可用
@@ -1405,16 +2024,29 @@ impl MemorySharingManager {
 - [ ] 创建后 CEO 自动完成后续配置
 - [ ] 创建时间 <5 秒
 
-### 8.5 性能验收
+### 9.5 故障恢复验收（新增）
+
+- [ ] 实例心跳检测正常（超时阈值可配置）
+- [ ] 任务 Checkpoint 自动保存（间隔可配置）
+- [ ] 宕机实例自动检测（120s 无响应）
+- [ ] 实例自动恢复成功率 >95%
+- [ ] 任务恢复成功率 >90%
+- [ ] 董事长状态持久化正常
+- [ ] A2A 消息降级持久化正常
+- [ ] 恢复过程用户通知正常
+- [ ] Checkpoint 文件自动清理
+
+### 9.6 性能验收
 
 - [ ] 全局状态查询 <100ms
 - [ ] 快速创建 <5 秒
 - [ ] A2A 消息路由 <50ms
+- [ ] Checkpoint 创建 <10ms
 - [ ] 单实例性能符合 v4.0 标准
 
 ---
 
-## 九、架构对比总结
+## 十、架构对比总结
 
 | 维度 | v4.0 混合 | v5.0 全局编排 | v5.0 企业可观测 | v6.0 全局可观测 |
 |------|---------|-------------|---------------|---------------|
@@ -1426,13 +2058,15 @@ impl MemorySharingManager {
 | **快速创建** | ❌ | ✅ | ❌ | ✅ |
 | **双通道** | ❌ | ❌ | ❌ | ✅ |
 | **记忆共享** | ❌ | ❌ | ✅ 三级 | ✅ **四级** |
+| **故障恢复** | ❌ | ❌ | ❌ | ✅ **Checkpoint + 自动恢复** |
 | **性能** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
 | **灵活性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
 | **易用性** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **可靠性** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | **⭐⭐⭐⭐⭐** |
 
 ---
 
-## 十、总结
+## 十一、总结
 
 ### v6.0 核心优势
 
@@ -1444,6 +2078,7 @@ impl MemorySharingManager {
 | **五层看板** | 用户/董事长/CEO/团队/Agent，完整可观测性 |
 | **快速创建** | CLI/Telegram/Web 多端支持，一键启动 |
 | **分级记忆** | 全局/集群/团队/工作，四级知识共享 |
+| **故障恢复** | Checkpoint 快照 + 自动检测 + 实例重建，保障业务连续性 |
 | **性能保障** | 核心层硬实现，延续 v4.0 性能优势 |
 | **灵活性** | 编排层 Skills 化，动态扩展 |
 
@@ -1473,6 +2108,12 @@ v5.0 企业可观测
     │ + 五层看板
     ▼
 v6.0 全局可观测架构
+    │
+    │ + 故障恢复机制 (Checkpoint + RecoveryCore)
+    │ + 实例健康监控
+    │ + A2A 通信降级
+    ▼
+v6.0 完整版 (可靠性保障)
 ```
 
 ### 最终定位
@@ -1482,13 +2123,14 @@ v6.0 全局可观测架构
 - ✅ **可观测层**: 五层看板，完整可观测性
 - ✅ **全局层**: 董事长 Agent，用户分身，多实例管理
 - ✅ **编排层**: Skills 化 + A2A 通信，灵活决策
-- ✅ **核心层**: 硬实现，性能保障
+- ✅ **核心层**: 硬实现 + RecoveryCore，性能与可靠性保障
 - ✅ **执行层**: 沙箱隔离，安全执行
 
-**v6.0 实现了性能、灵活性、易用性、可观测性的最佳平衡！**
+**v6.0 实现了性能、灵活性、易用性、可观测性、可靠性的最佳平衡！**
 
 ---
 
 **审批状态**: 待审批
 **负责人**: 待定
-**最后更新**: 2026 年 3 月 1 日
+**创建日期**: 2026 年 3 月 1 日
+**最后更新**: 2026 年 3 月 1 日（新增故障恢复机制）
