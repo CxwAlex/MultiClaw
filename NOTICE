@@ -1,0 +1,24 @@
+# MultiClaw Project Notice
+
+## Copyright
+
+Copyright (c) 2026 CxwAlex
+Copyright (c) 2024-2026 ZeroClaw Labs
+
+## License
+
+This project is dual-licensed under MIT OR Apache-2.0.
+
+See LICENSE-MIT and LICENSE-APACHE for details.
+
+## Attribution
+
+This project includes code derived from ZeroClaw
+(https://github.com/zeroclaw-labs/zeroclaw), used under the terms of
+the MIT OR Apache-2.0 license.
+
+## Third-Party Dependencies
+
+This project depends on various third-party libraries, each under
+their own license terms. See the Cargo.toml and package.json files
+for a complete list of dependencies.
