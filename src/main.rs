@@ -52,6 +52,12 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
 mod agent;
 mod approval;
 mod auth;
+mod a2a {
+    pub use multiclaw::a2a::*;
+}
+mod core {
+    pub use multiclaw::core::*;
+}
 mod channels;
 mod rag {
     pub use multiclaw::rag::*;
@@ -1124,10 +1130,10 @@ async fn main() -> Result<()> {
         } => integrations::handle_command(integration_command, &config),
 
         Commands::Skills { skill_command } => {
-            // 使用阻塞方式执行技能命令，因为 handle_command 是异步的
-            let config_ref = &config;
+            // 克隆 config 以满足 'static 生命周期要求
+            let config_clone = config.clone();
             tokio::task::spawn(async move {
-                if let Err(e) = skills::handle_command(skill_command, config_ref).await {
+                if let Err(e) = skills::handle_command(skill_command, &config_clone).await {
                     eprintln!("Error handling skill command: {}", e);
                 }
             });

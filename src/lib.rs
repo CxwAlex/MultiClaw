@@ -48,6 +48,7 @@ pub mod config;
 pub mod coordination;
 pub mod core;
 pub mod skills;
+// pub mod tests;  // 暂时禁用以排除干扰
 pub(crate) mod cost;
 pub(crate) mod cron;
 pub(crate) mod daemon;

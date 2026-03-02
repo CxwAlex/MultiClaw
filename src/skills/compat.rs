@@ -6,9 +6,39 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde_json::Value;
-use std::path::Path;
-use uuid::Uuid;
+use std::path::PathBuf;
 use chrono::{DateTime, Utc};
+
+/// 技能工具定义
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillTool {
+    /// 工具名称
+    pub name: String,
+    /// 工具描述
+    pub description: String,
+    /// 工具类型
+    pub kind: String,
+    /// 命令
+    pub command: String,
+    /// 参数
+    pub args: HashMap<String, serde_json::Value>,
+    /// 工具参数规范（可选）
+    #[serde(default)]
+    pub parameters: HashMap<String, ParameterSpec>,
+}
+
+impl Default for SkillTool {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            kind: "shell".to_string(),
+            command: String::new(),
+            args: HashMap::new(),
+            parameters: HashMap::new(),
+        }
+    }
+}
 
 /// 技能结构定义（兼容现有代码）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,6 +65,14 @@ pub struct Skill {
     pub updated_at: DateTime<Utc>,
     /// 是否启用
     pub enabled: bool,
+    /// 作者（可选）
+    pub author: Option<String>,
+    /// 工具列表
+    pub tools: Vec<SkillTool>,
+    /// 提示列表
+    pub prompts: Vec<String>,
+    /// 位置路径（可选）
+    pub location: Option<PathBuf>,
 }
 
 /// 参数规范
@@ -54,26 +92,48 @@ pub struct ParameterSpec {
     pub example: Option<Value>,
 }
 
+impl Default for Skill {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            name: String::new(),
+            description: String::new(),
+            category: String::new(),
+            tags: vec![],
+            version: "1.0.0".to_string(),
+            parameters: HashMap::new(),
+            implementation: String::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            enabled: true,
+            author: None,
+            tools: vec![],
+            prompts: vec![],
+            location: None,
+        }
+    }
+}
+
 /// 加载技能配置的函数（兼容现有代码）
-pub fn load_skills_with_config(workspace_dir: &std::path::Path, config: &crate::config::schema::Config) -> Vec<Skill> {
+pub fn load_skills_with_config(_workspace_dir: &std::path::Path, _config: &crate::config::schema::Config) -> Vec<Skill> {
     // 返回空列表作为占位符，以使现有代码能编译通过
     vec![]
 }
 
 /// 将技能转换为提示的函数（兼容现有代码）
-pub fn skills_to_prompt_with_mode(skills: &[Skill], mode: &str) -> String {
+pub fn skills_to_prompt_with_mode(_skills: &[Skill], _mode: &str) -> String {
     // 返回空字符串作为占位符
     String::new()
 }
 
 /// 加载技能配置的函数（兼容现有代码）
-pub fn load_skills_with_config_and_workspace(workspace: &str, config: &serde_json::Value) -> Vec<Skill> {
+pub fn load_skills_with_config_and_workspace(_workspace: &str, _config: &serde_json::Value) -> Vec<Skill> {
     // 返回空列表作为占位符
     vec![]
 }
 
 /// 加载技能配置的另一个函数（兼容现有代码）
-pub fn load_skills_with_config_and_workspace_dir(workspace_dir: &std::path::Path, config: &crate::config::schema::Config) -> Vec<Skill> {
+pub fn load_skills_with_config_and_workspace_dir(_workspace_dir: &std::path::Path, _config: &crate::config::schema::Config) -> Vec<Skill> {
     // 返回空列表作为占位符
     vec![]
 }
@@ -90,8 +150,13 @@ impl SkillManager {
         }
     }
 
-    pub async fn list_skills(&self) -> Vec<String> {
-        vec![]
+    pub async fn add_skill(&self, skill: Skill) {
+        let mut skills = self.skills.write().await;
+        skills.push(skill);
+    }
+
+    pub async fn get_skills(&self) -> Vec<Skill> {
+        self.skills.read().await.clone()
     }
 }
 

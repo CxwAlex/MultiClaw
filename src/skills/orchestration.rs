@@ -1,8 +1,8 @@
 //! Skills 编排系统（简化版）
 //! 用于管理和调度 MultiClaw 中的各种技能和工具
 
-use multiclaw::a2a::{A2AMessage, A2AGateway};
-use multiclaw::core::{MemoryCore, ResourceCore, HealthCore};
+use crate::a2a::{A2AMessage, A2AGateway};
+use crate::core::{MemoryCore, ResourceCore, HealthCore};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use std::fmt::Debug;
 
 // 导入 ResourceUsage 以避免错误
-use multiclaw::core::resource_core::ResourceUsage;
+use crate::core::resource_core::ResourceUsage;
 
 /// 技能类型枚举
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -755,7 +755,7 @@ mod tests {
     async fn test_skills_orchestration_basic() {
         // 这里可以添加测试代码
         let a2a_gateway = Arc::new(A2AGateway::new());
-        let memory_core = Arc::new(MemoryCore::new());
+        let memory_core = Arc::new(MemoryCore::new(a2a_gateway.clone()));
         let resource_core = Arc::new(ResourceCore::new());
         let health_core = Arc::new(HealthCore::new());
 

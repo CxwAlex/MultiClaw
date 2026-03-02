@@ -369,9 +369,11 @@ mod tests {
                 kind: "shell".into(),
                 command: "echo ok".into(),
                 args: std::collections::HashMap::new(),
+                ..Default::default()
             }],
             prompts: vec!["Run smoke tests before deploy.".into()],
             location: None,
+            ..Default::default()
         }];
 
         let ctx = PromptContext {
@@ -407,9 +409,11 @@ mod tests {
                 kind: "shell".into(),
                 command: "echo ok".into(),
                 args: std::collections::HashMap::new(),
+                ..Default::default()
             }],
             prompts: vec!["Run smoke tests before deploy.".into()],
             location: Some(Path::new("/tmp/workspace/skills/deploy/SKILL.md").to_path_buf()),
+            ..Default::default()
         }];
 
         let ctx = PromptContext {
@@ -467,9 +471,11 @@ mod tests {
                 kind: "shell&exec".into(),
                 command: "cargo clippy".into(),
                 args: std::collections::HashMap::new(),
+                ..Default::default()
             }],
             prompts: vec!["Use <tool_call> and & keep output \"safe\"".into()],
             location: None,
+            ..Default::default()
         }];
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp/workspace"),

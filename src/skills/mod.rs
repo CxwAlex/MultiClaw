@@ -3,7 +3,7 @@
 
 mod compat;
 pub use compat::{
-    Skill, ParameterSpec, load_skills_with_config, skills_to_prompt_with_mode,
+    Skill, SkillTool, ParameterSpec, load_skills_with_config, skills_to_prompt_with_mode,
     load_skills_with_config_and_workspace, load_skills_with_config_and_workspace_dir,
     SkillManager
 };
@@ -23,14 +23,14 @@ pub use orchestration::{
 use crate::config::schema::Config;
 
 /// 处理技能命令
-pub async fn handle_command(cmd: crate::SkillCommands, config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn handle_command(cmd: crate::SkillCommands, _config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     // 初始化技能编排系统
     let a2a_gateway = std::sync::Arc::new(crate::a2a::A2AGateway::new());
     let memory_core = std::sync::Arc::new(crate::core::MemoryCore::new(a2a_gateway.clone()));
     let resource_core = std::sync::Arc::new(crate::core::ResourceCore::new());
     let health_core = std::sync::Arc::new(crate::core::HealthCore::new());
 
-    let skills_orchestration = SkillsOrchestration::new(
+    let _skills_orchestration = SkillsOrchestration::new(
         a2a_gateway,
         memory_core,
         resource_core,

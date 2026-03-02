@@ -1,7 +1,7 @@
 //! 董事长 Agent 模块
 //! 用户的 AI 分身，统一管理所有 MultiClaw 实例
 
-use multiclaw::a2a::A2AGateway;
+use crate::a2a::A2AGateway;
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -356,7 +356,7 @@ impl ChairmanAgent {
             .ok_or("实例不存在")?;
 
         // 通过 A2A 网关发送消息到 CEO
-        use multiclaw::a2a::{A2AMessageBuilder, A2AMessageType, MessagePriority};
+        use crate::a2a::{A2AMessageBuilder, A2AMessageType, MessagePriority};
         use serde_json::json;
 
         let a2a_message = A2AMessageBuilder::new(
