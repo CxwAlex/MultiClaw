@@ -7,6 +7,7 @@ pub mod prometheus;
 pub mod runtime_trace;
 pub mod traits;
 pub mod verbose;
+pub mod dashboard;
 
 #[allow(unused_imports)]
 pub use self::log::LogObserver;
@@ -19,6 +20,33 @@ pub use prometheus::PrometheusObserver;
 pub use traits::{Observer, ObserverEvent};
 #[allow(unused_imports)]
 pub use verbose::VerboseObserver;
+
+// Dashboard exports
+#[allow(unused_imports)]
+pub use dashboard::{
+    // Cluster state
+    ClusterState, ClusterNode, ClusterMetrics, ClusterSummary,
+    NodeStatus, NodeType, NodeResourceUsage, CompanySummary,
+    // Company manager
+    CompanyManager, CompanyConfig, CompanyType, TeamConfig, TeamType,
+    CreateCompanyRequest, CreateTeamRequest, CreateResult,
+    CEOConfig, DecisionMode, CollaborationMode,
+    // User dashboard
+    UserDashboard, UserDashboardData, InstanceSummary,
+    // Board dashboard
+    BoardDashboard as BoardDashboardData, CompanyOverview, 
+    ResourceOverview as BoardResourceOverview, BoardDashboardManager,
+    // CEO dashboard
+    CEODashboard as CEODashboardData, ProjectDetail, TeamPerformance,
+    CEODashboardManager,
+    // Team dashboard
+    TeamDashboard as TeamDashboardData, TaskDetail, TaskStatus, TaskPriority,
+    WorkerStatus, TeamResourceUsage, KnowledgeEntry, TeamQuickStats,
+    TeamDashboardManager,
+    // Agent dashboard
+    AgentDashboard as AgentDashboardData, AgentInfo, AgentStatus,
+    AgentDashboardManager,
+};
 
 use crate::config::ObservabilityConfig;
 

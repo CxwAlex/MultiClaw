@@ -80,6 +80,76 @@ MultiClaw v6.0 实现了全新的五层架构设计：
 - 自动故障检测
 - 恢复机制
 
+#### RecoveryCore（故障恢复系统）- v6.0 新增
+- 实例健康监控和故障检测
+- 任务 Checkpoint 快照管理
+- 自动恢复流程
+- 恢复策略配置
+
+#### 五层看板系统 - v6.0 新增
+提供从用户到 Agent 的完整可观测性：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    可观测层 (Observability)                       │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │  用户看板    │  │  董事长看板  │  │  CEO 看板     │          │
+│  │  (L5 全局)  │  │  (L4 多实例) │  │  (L3 项目)   │          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│  ┌──────────────┐  ┌──────────────┐                            │
+│  │  团队看板    │  │  Agent 看板   │                            │
+│  │  (L2 任务)  │  │  (L1 执行)   │                            │
+│  └──────────────┘  └──────────────┘                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**核心能力**：
+- **ClusterState**: 集群状态管理，实时监控所有节点（董事长、公司、团队、Agent）
+- **CompanyManager**: 公司/团队管理，支持创建公司、创建团队、快速创建
+- **L5 用户看板**: 全局摘要、资源概览、建议、告警（面向用户自然人）
+- **L4 董事长看板**: 多实例概览、重大事件、成本分析（面向董事长 Agent）
+- **L3 CEO 看板**: 项目列表、待审批、团队排名（面向 CEO Agent）
+- **L2 团队看板**: 任务进度、Worker 状态、知识库（面向团队负责人）
+- **L1 Agent 看板**: 执行记录、健康状态、收件箱（面向 Worker Agent）
+
+**创建公司/团队示例**：
+```rust
+use multiclaw::observability::{
+    ClusterState, CompanyManager, CreateCompanyRequest, CreateTeamRequest, CompanyType, TeamType
+};
+
+// 创建公司管理器
+let cluster_state = Arc::new(ClusterState::new());
+let company_manager = CompanyManager::new(cluster_state.clone());
+
+// 创建公司
+let result = company_manager.create_company(CreateCompanyRequest {
+    name: "AI 研究公司".to_string(),
+    company_type: CompanyType::MarketResearch,
+    token_quota: Some(1_000_000),
+    max_agents: Some(50),
+    ..Default::default()
+}).await;
+
+// 创建团队
+let result = company_manager.create_team(CreateTeamRequest {
+    company_id: result.id.unwrap(),
+    name: "市场分析团队".to_string(),
+    goal: "分析 AI 市场趋势".to_string(),
+    team_type: TeamType::Research,
+    ..Default::default()
+}).await;
+
+// 快速创建（公司 + 团队一步到位）
+let result = company_manager.quick_create(
+    "AI 研究公司".to_string(),
+    CompanyType::MarketResearch,
+    "市场分析团队".to_string(),
+    "分析 AI 市场趋势".to_string(),
+    TeamType::Research,
+).await;
+```
+
 #### Skills 编排系统
 - 技能注册和发现
 - 执行计划管理
@@ -187,7 +257,20 @@ multiclaw/
 │   │   ├── mod.rs          # 模块导出
 │   │   ├── memory_core.rs  # 分级记忆系统
 │   │   ├── resource_core.rs# 资源管理系统
-│   │   └── health_core.rs  # 健康检查系统
+│   │   ├── health_core.rs  # 健康检查系统
+│   │   ├── recovery_core.rs# 故障恢复系统（v6.0 新增）
+│   │   └── checkpoint_mgr.rs# 任务快照管理（v6.0 新增）
+│   ├── observability/      # 可观测层（v6.0 新增）
+│   │   ├── mod.rs          # 模块导出
+│   │   └── dashboard/      # 五层看板系统
+│   │       ├── mod.rs      # 模块导出
+│   │       ├── cluster_state.rs    # 集群状态管理
+│   │       ├── company_manager.rs  # 公司/团队管理
+│   │       ├── user_dashboard.rs   # 用户看板（L5）
+│   │       ├── board_dashboard.rs  # 董事长看板（L4）
+│   │       ├── ceo_dashboard.rs    # CEO 看板（L3）
+│   │       ├── team_dashboard.rs   # 团队看板（L2）
+│   │       └── agent_dashboard.rs  # Agent 看板（L1）
 │   ├── agent/              # AI 代理核心逻辑
 │   │   ├── chairman.rs     # 董事长 Agent（v6.0 新增）
 │   │   └── ...

@@ -454,7 +454,56 @@ MultiClaw v6.0 introduces a comprehensive five-layer architecture for enhanced m
 | **MemoryCore** | Four-tier memory system (Global/Cluster/Team/Local) with sharing policies |
 | **ResourceCore** | Resource quota management, dynamic allocation, usage monitoring |
 | **HealthCore** | Component health monitoring, automatic fault detection, recovery mechanisms |
+| **RecoveryCore** | Instance health monitoring, task checkpoint snapshots, automatic recovery flows |
+| **Five-Layer Dashboard** | Complete observability from User → Chairman → CEO → Team → Agent |
 | **Skills Orchestration** | Skill registration, execution planning, resource validation, status tracking |
+
+#### Five-Layer Dashboard System
+
+The dashboard system provides complete observability across all levels:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Observability Layer                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │  User        │  │  Chairman    │  │  CEO         │          │
+│  │  Dashboard   │  │  Dashboard   │  │  Dashboard   │          │
+│  │  (L5 Global) │  │  (L4 Multi)  │  │  (L3 Project)│          │
+│  └──────────────┘  └──────────────┘  └──────────────┘          │
+│  ┌──────────────┐  ┌──────────────┐                            │
+│  │  Team        │  │  Agent       │                            │
+│  │  Dashboard   │  │  Dashboard   │                            │
+│  │  (L2 Task)   │  │  (L1 Exec)   │                            │
+│  └──────────────┘  └──────────────┘                            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Dashboard | User | Purpose |
+|-----------|------|---------|
+| **L5 User** | End User | Global summary, resource overview, suggestions, alerts |
+| **L4 Chairman** | Chairman Agent | Multi-instance overview, major events, cost analysis |
+| **L3 CEO** | CEO Agent | Project list, pending approvals, team rankings |
+| **L2 Team** | Team Lead | Task progress, worker status, team knowledge |
+| **L1 Agent** | Worker Agent | Execution logs, health status, inbox |
+
+**Create Company/Team**:
+```rust
+use multiclaw::observability::{
+    ClusterState, CompanyManager, CreateCompanyRequest, CompanyType, TeamType
+};
+
+let cluster_state = Arc::new(ClusterState::new());
+let manager = CompanyManager::new(cluster_state.clone());
+
+// Quick create company + team in one step
+let result = manager.quick_create(
+    "AI Research Company".to_string(),
+    CompanyType::MarketResearch,
+    "Market Analysis Team".to_string(),
+    "Analyze AI market trends".to_string(),
+    TeamType::Research,
+).await;
+```
 
 Every subsystem is a **trait** — swap implementations with a config change, zero code changes.
 
