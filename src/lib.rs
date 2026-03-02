@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 pub mod a2a;
 pub mod agent;
 pub(crate) mod approval;
-pub(crate) mod auth;
+pub mod auth;  // main.rs 需要使用
 pub mod channels;
 pub mod config;
 pub mod coordination;
@@ -50,12 +50,12 @@ pub mod core;
 pub mod skills;
 // pub mod tests;  // 暂时禁用以排除干扰
 pub(crate) mod cost;
-pub(crate) mod cron;
-pub(crate) mod daemon;
-pub(crate) mod doctor;
+pub mod cron;  // main.rs 需要使用
+pub mod daemon;  // main.rs 需要使用
+pub mod doctor;  // main.rs 需要使用
 pub mod gateway;
 pub mod goals;
-pub(crate) mod hardware;
+pub mod hardware;  // main.rs 需要使用
 pub(crate) mod health;
 pub(crate) mod heartbeat;
 pub mod hooks;
@@ -63,18 +63,18 @@ pub(crate) mod identity;
 // Intentionally unused re-export — public API surface for plugin authors.
 #[allow(unused_imports)]
 pub(crate) mod plugins;
-pub(crate) mod integrations;
+pub mod integrations;  // main.rs 需要使用
 pub mod memory;
-pub(crate) mod migration;
+pub mod migration;  // main.rs 需要使用
 pub(crate) mod multimodal;
 pub mod observability;
-pub(crate) mod onboard;
+pub mod onboard;  // main.rs 需要使用
 pub mod peripherals;
 pub mod providers;
 pub mod rag;
 pub mod runtime;
-pub(crate) mod security;
-pub(crate) mod service;
+pub mod security;  // main.rs 需要使用
+pub mod service;  // main.rs 需要使用
 pub mod tools;
 pub(crate) mod tunnel;
 pub mod update;

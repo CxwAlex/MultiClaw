@@ -49,56 +49,22 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
     Ok(t)
 }
 
-mod agent;
-mod approval;
-mod auth;
-mod a2a {
-    pub use multiclaw::a2a::*;
-}
-mod core {
-    pub use multiclaw::core::*;
-}
-mod channels;
-mod rag {
-    pub use multiclaw::rag::*;
-}
-mod config;
-mod coordination;
-mod cost;
-mod cron;
-mod daemon;
-mod doctor;
-mod gateway;
-mod goals;
-mod hardware;
-mod health;
-mod heartbeat;
-mod hooks;
-mod identity;
-mod integrations;
-mod memory;
-mod migration;
-mod multimodal;
-mod observability;
-mod onboard;
-mod peripherals;
-mod providers;
-mod runtime;
-mod security;
-mod service;
-mod skillforge;
-mod skills;
-mod tools;
-mod tunnel;
-mod update;
-mod util;
+// 从 lib 导入所有模块（只导入实际需要的）
+use multiclaw::{
+    a2a, agent, auth, channels, config, coordination, core, cron, daemon,
+    doctor, gateway, goals, hardware, hooks,
+    integrations, memory, migration,
+    observability, onboard,
+    peripherals, providers, rag, runtime, security, service, skills, tools,
+    update,
+};
 
 use config::Config;
 
 // Re-export so binary modules can use crate::<CommandEnum> while keeping a single source of truth.
 pub use multiclaw::{
     ChannelCommands, CronCommands, HardwareCommands, IntegrationCommands, MigrateCommands,
-    PeripheralCommands, ServiceCommands, SkillCommands,
+    MemoryCommands, PeripheralCommands, ServiceCommands, SkillCommands,
 };
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
@@ -695,35 +661,7 @@ enum DoctorCommands {
     },
 }
 
-#[derive(Subcommand, Debug)]
-enum MemoryCommands {
-    /// List memory entries with optional filters
-    List {
-        #[arg(long)]
-        category: Option<String>,
-        #[arg(long)]
-        session: Option<String>,
-        #[arg(long, default_value = "50")]
-        limit: usize,
-        #[arg(long, default_value = "0")]
-        offset: usize,
-    },
-    /// Get a specific memory entry by key
-    Get { key: String },
-    /// Show memory backend statistics and health
-    Stats,
-    /// Clear memories by category, by key, or clear all
-    Clear {
-        /// Delete a single entry by key (supports prefix match)
-        #[arg(long)]
-        key: Option<String>,
-        #[arg(long)]
-        category: Option<String>,
-        /// Skip confirmation prompt
-        #[arg(long)]
-        yes: bool,
-    },
-}
+// MemoryCommands 从 lib.rs 导入，不再在这里定义
 
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
