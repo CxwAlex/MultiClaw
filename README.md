@@ -422,6 +422,40 @@ multiclaw agent --provider anthropic -m "hello"
 
 ## Architecture
 
+### v6.0 Five-Layer Architecture
+
+MultiClaw v6.0 introduces a comprehensive five-layer architecture for enhanced modularity and observability:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Observability Layer                       │
+│              Five-layer dashboard, monitoring, alerts        │
+├─────────────────────────────────────────────────────────────┤
+│                      Global Layer                            │
+│          Chairman Agent (user avatar), instance management   │
+├─────────────────────────────────────────────────────────────┤
+│                   Orchestration Layer                        │
+│           Skills system, task orchestration, execution plans │
+├─────────────────────────────────────────────────────────────┤
+│                      Core Layer                              │
+│         MemoryCore, ResourceCore, HealthCore                 │
+├─────────────────────────────────────────────────────────────┤
+│                     Execution Layer                          │
+│               Agent engine, tool invocation                  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Key Components
+
+| Component | Description |
+|-----------|-------------|
+| **A2A Protocol** | Agent-to-Agent communication with 4-level routing (L1: internal, L2: team, L3: cross-team, L4: cross-instance) |
+| **Chairman Agent** | User's AI avatar for unified instance management and dual-channel communication |
+| **MemoryCore** | Four-tier memory system (Global/Cluster/Team/Local) with sharing policies |
+| **ResourceCore** | Resource quota management, dynamic allocation, usage monitoring |
+| **HealthCore** | Component health monitoring, automatic fault detection, recovery mechanisms |
+| **Skills Orchestration** | Skill registration, execution planning, resource validation, status tracking |
+
 Every subsystem is a **trait** — swap implementations with a config change, zero code changes.
 
 <p align="center">
