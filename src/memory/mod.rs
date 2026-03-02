@@ -1,8 +1,11 @@
 pub mod backend;
 pub mod chunker;
 pub mod cli;
+pub mod compressor;
+pub mod context_manager;
 pub mod embeddings;
 pub mod hygiene;
+pub mod importance;
 pub mod lucid;
 pub mod markdown;
 pub mod none;
@@ -29,6 +32,12 @@ pub use qdrant::QdrantMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
 pub use traits::Memory;
+#[allow(unused_imports)]
+pub use compressor::{MemoryCapsule, MemoryCompressor, MemoryCompressorConfig};
+#[allow(unused_imports)]
+pub use importance::{ImportanceScorer, ImportanceScorerConfig, ImportanceFactors, MemoryImportanceEvaluator};
+#[allow(unused_imports)]
+pub use context_manager::{ContextManager, ContextManagerConfig};
 #[allow(unused_imports)]
 pub use traits::{MemoryCategory, MemoryEntry};
 
