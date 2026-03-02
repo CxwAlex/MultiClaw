@@ -121,9 +121,73 @@ pub fn load_skills_with_config(_workspace_dir: &std::path::Path, _config: &crate
 }
 
 /// 将技能转换为提示的函数（兼容现有代码）
-pub fn skills_to_prompt_with_mode(_skills: &[Skill], _mode: &str) -> String {
-    // 返回空字符串作为占位符
-    String::new()
+pub fn skills_to_prompt_with_mode(skills: &[Skill], mode: &str) -> String {
+    if skills.is_empty() {
+        return String::new();
+    }
+    
+    let mut result = String::new();
+    result.push_str("## Available Skills\n\n");
+    result.push_str("<available_skills>\n");
+    
+    for skill in skills {
+        result.push_str("<skill>\n");
+        result.push_str(&format!("<name>{}</name>\n", escape_xml(&skill.name)));
+        result.push_str(&format!("<description>{}</description>\n", escape_xml(&skill.description)));
+        
+        // 添加版本信息
+        result.push_str(&format!("<version>{}</version>\n", skill.version));
+        
+        // 添加位置信息（使用默认位置如果没有指定）
+        let location_str = if let Some(ref location) = skill.location {
+            location.display().to_string()
+        } else {
+            format!("skills/{}/SKILL.md", skill.name)
+        };
+        result.push_str(&format!("<location>{}</location>\n", escape_xml(&location_str)));
+        
+        // 根据模式决定是否包含详细信息
+        if mode != "compact" {
+            // 添加指令
+            if !skill.prompts.is_empty() {
+                result.push_str("<instructions>\n");
+                for prompt in &skill.prompts {
+                    result.push_str(&format!("<instruction>{}</instruction>\n", escape_xml(prompt)));
+                }
+                result.push_str("</instructions>\n");
+            }
+            
+            // 添加工具
+            if !skill.tools.is_empty() {
+                result.push_str("<tools>\n");
+                for tool in &skill.tools {
+                    result.push_str("<tool>\n");
+                    result.push_str(&format!("<name>{}</name>\n", escape_xml(&tool.name)));
+                    result.push_str(&format!("<description>{}</description>\n", escape_xml(&tool.description)));
+                    result.push_str(&format!("<kind>{}</kind>\n", escape_xml(&tool.kind)));
+                    result.push_str("</tool>\n");
+                }
+                result.push_str("</tools>\n");
+            }
+        } else {
+            // Compact 模式：只显示技能加载提示
+            result.push_str("Skills loaded on demand\n");
+        }
+        
+        result.push_str("</skill>\n");
+    }
+    
+    result.push_str("</available_skills>\n");
+    result
+}
+
+/// 转义 XML 特殊字符
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// 加载技能配置的函数（兼容现有代码）

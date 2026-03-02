@@ -509,7 +509,10 @@ impl MemoryCore {
                 let mut matches_keywords = true;
                 
                 for keyword in &query.keywords {
-                    if !entry.key.contains(keyword) && !entry.content.contains(keyword) {
+                    // 搜索 ID、键和内容
+                    if !entry.id.contains(keyword) 
+                        && !entry.key.contains(keyword) 
+                        && !entry.content.contains(keyword) {
                         matches_keywords = false;
                         break;
                     }

@@ -189,6 +189,8 @@ impl ResourceCore {
             .insert(rt.clone(), AtomicUsize::new(total as usize));
         self.used_resources
             .insert(rt.clone(), AtomicUsize::new(0));
+        self.reserved_resources
+            .insert(rt.clone(), AtomicUsize::new(0));
         self.usage_history.insert(rt, Vec::new());
     }
 

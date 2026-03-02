@@ -3948,9 +3948,13 @@ pub fn build_system_prompt_with_mode(
 
     // ── 3. Skills (full or compact, based on config) ─────────────
     if !skills.is_empty() {
+        let mode_str = match skills_prompt_mode {
+            crate::config::SkillsPromptInjectionMode::Compact => "compact",
+            crate::config::SkillsPromptInjectionMode::Full => "full",
+        };
         prompt.push_str(&crate::skills::skills_to_prompt_with_mode(
             skills,
-            "default"  // 使用默认模式，因为我们简化了函数
+            mode_str
         ));
         prompt.push_str("\n\n");
     }
