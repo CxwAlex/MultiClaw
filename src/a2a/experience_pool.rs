@@ -357,7 +357,6 @@ mod tests {
     // 辅助函数：创建虚拟提取器用于测试
     async fn create_dummy_extractor() -> ExperienceExtractor {
         use crate::a2a::gateway::A2AGateway;
-        use crate::providers::openai::OpenAiProvider;
         
         // 创建一个虚拟的 provider
         struct DummyProvider;
@@ -375,8 +374,8 @@ mod tests {
         }
         
         let provider: Arc<dyn crate::providers::Provider> = Arc::new(DummyProvider);
-        let gateway = A2AGateway::new_for_test(); // 假设有这样的测试构造函数
-        
+        let gateway = std::sync::Arc::new(A2AGateway::new());
+
         ExperienceExtractor::new(
             provider,
             gateway,

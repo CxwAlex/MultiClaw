@@ -35,7 +35,7 @@ pub struct ExperienceCapsule {
 }
 
 /// 策略模板
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StrategyTemplate {
     /// 步骤序列
     pub steps: Vec<StrategyStep>,
