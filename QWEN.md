@@ -9,6 +9,10 @@
 - **安全优先**: 配对机制、沙箱、允许列表、速率限制、加密密钥存储
 - **可插拔一切**: 模型提供商、通信渠道、工具、内存后端均可替换
 - **五层架构 (v6.0)**: 全局层、编排层、核心层、执行层、可观测层
+- **企业级多实例**: 支持多公司实例管理，董事长 Agent 作为用户分身
+- **A2A 跨公司通信**: Agent-to-Agent 协议支持跨实例通信
+- **五层可观测性**: 用户-L5、董事长-L4、CEO-L3、团队-L2、Agent-L1 全方位监控
+- **自主恢复能力**: 故障检测、检查点管理、自动恢复机制
 
 ### 技术栈
 - **语言**: Rust (edition 2021, rust-version 1.87)
@@ -454,5 +458,103 @@ error[E0603]: module `auth` is private
 2. **低内存设备**: 使用 `--profile release-fast` 或 `codegen-units = 8` 加速编译
 3. **发布二进制大小**: ~8.8MB（strip + LTO + opt-level=z）
 4. **配置安全**: 环境变量优先级高于配置文件
+
+## Qwen 模型备用切换配置
+
+MultiClaw 支持 Qwen 模型的三级备用切换机制，确保服务高可用性。
+
+### 备用链架构
+
+```
+主模型失败 → 备用1 (qwen-oauth) → 备用2 (qwen)
+     ↓                ↓                    ↓
+qwen-coding-plan   portal.qwen.ai    dashscope.aliyuncs.com
+```
+
+### 配置示例
+
+```toml
+# ~/.multiclaw/config.toml
+
+# 主模型配置
+api_key = "your-primary-api-key"
+default_provider = "qwen-coding-plan"
+default_model = "qwen3.5-plus"
+
+[reliability]
+provider_retries = 2
+provider_backoff_ms = 500
+# 备用 provider 链
+fallback_providers = ["qwen-oauth", "qwen"]
+
+# 模型 fallback：当 qwen-oauth 不支持主模型时，自动切换到 coder-model
+[reliability.model_fallbacks]
+"qwen-oauth" = ["coder-model"]
+```
+
+### 认证配置
+
+#### 主模型 (qwen-coding-plan)
+- 使用阿里云百炼 Coding Plan API Key
+- 端点: `coding.dashscope.aliyuncs.com`
+- 配置方式: 在 `config.toml` 中设置 `api_key`
+
+#### 备用1 (qwen-oauth / qwen-code)
+- 使用 Qwen Code OAuth 认证
+- 端点: `portal.qwen.ai`
+- 认证文件: `~/.qwen/oauth_creds.json`
+- 支持模型: `coder-model`, `qwen3-coder-plus`
+- 刷新机制: 自动检测 token 过期并刷新
+
+#### 备用2 (qwen)
+- 使用阿里云 DashScope API Key
+- 端点: `dashscope.aliyuncs.com`
+- 配置方式: 设置环境变量 `DASHSCOPE_API_KEY`
+
+### OAuth 凭据文件格式
+
+`~/.qwen/oauth_creds.json`:
+```json
+{
+  "access_token": "your-access-token",
+  "refresh_token": "your-refresh-token",
+  "token_type": "Bearer",
+  "resource_url": "portal.qwen.ai",
+  "expiry_date": 1772532594502
+}
+```
+
+### 环境变量
+
+| 变量名 | 用途 |
+|--------|------|
+| `DASHSCOPE_API_KEY` | 备用2 (qwen) 的 API Key |
+| `QWEN_OAUTH_TOKEN` | 可选：直接设置 OAuth token |
+| `QWEN_OAUTH_REFRESH_TOKEN` | 可选：设置 refresh token |
+
+### 切换流程
+
+1. **主模型失败** (401/无效 key) → 自动切换到备用1
+2. **备用1失败** (token 过期/模型不支持) → 自动切换到备用2
+3. **全部失败** → 返回详细错误日志
+
+### 日志示例
+
+```
+WARN multiclaw::providers::reliable: Non-retryable error, moving on provider="qwen-coding-plan"
+WARN multiclaw::providers::reliable: Exhausted retries, trying next provider/model
+INFO multiclaw::providers::reliable: Provider recovered provider="qwen-oauth" model="coder-model"
+```
+
+### 测试备用切换
+
+```bash
+# 测试主模型
+multiclaw agent -m "test message"
+
+# 测试备用切换（设置无效 key）
+# 在 config.toml 中设置 api_key = "invalid-key-for-test"
+DASHSCOPE_API_KEY="your-backup-key" multiclaw agent -m "test message"
+```
 5. **渠道要求**: Telegram、Discord 等渠道需要 daemon 运行
 6. **模块声明**: 所有模块在 `lib.rs` 中声明，`main.rs` 只负责 CLI 处理
