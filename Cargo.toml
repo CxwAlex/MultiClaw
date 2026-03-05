@@ -140,6 +140,12 @@ rustls-pki-types = "1.14.0"
 tokio-rustls = "0.26.4"
 webpki-roots = "1.0.6"
 
+# TOML editing for dynamic config updates
+toml_edit = "0.22"
+
+# URL parsing for enhanced gateway
+url = "2.0"
+
 # email
 lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "rustls-tls"] }
 mail-parser = "0.11.2"
@@ -150,6 +156,9 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
 http-body-util = "0.1"
+
+# Bytes utilities for WebSocket communication
+bytes = "1.0"
 
 # Embed frontend assets into binary (web dashboard)
 rust-embed = "8"

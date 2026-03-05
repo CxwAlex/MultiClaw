@@ -53,7 +53,7 @@ fn parse_temperature(s: &str) -> std::result::Result<f64, String> {
 use multiclaw::{
     a2a, agent, auth, channels, config, coordination, core, cron, daemon,
     doctor, gateway, goals, hardware, hooks,
-    instance, integrations, memory, migration,
+    integrations, memory, migration,
     observability, onboard,
     peripherals, providers, rag, runtime, security, service, skills, tools,
     update,
@@ -489,86 +489,12 @@ Examples:
         #[arg(value_enum)]
         shell: CompletionShell,
     },
-
-    /// Manage instances (create, list, start, stop)
-    #[command(long_about = "\
-Manage MultiClaw instances.
-
-Create, list, start, and stop independent MultiClaw instances that run \
-separate companies/departments with isolated resources and configurations.
-
-Examples:
-  multiclaw instance create --name \"Marketing\" --type market_research
-  multiclaw instance list
-  multiclaw instance start <id>
-  multiclaw instance stop <id>")]
-    Instance {
-        #[command(subcommand)]
-        instance_command: InstanceCommands,
-    },
 }
 
 #[derive(Subcommand, Debug)]
 enum ConfigCommands {
     /// Dump the full configuration JSON Schema to stdout
     Schema,
-}
-
-#[derive(Subcommand, Debug)]
-enum InstanceCommands {
-    /// Create a new instance
-    Create {
-        /// Name of the instance
-        #[arg(long)]
-        name: String,
-        
-        /// Type of instance
-        #[arg(long, value_parser = clap::value_parser!(InstanceTypeArg))]
-        instance_type: InstanceTypeArg,
-        
-        /// Token quota per minute
-        #[arg(long, default_value = "100000")]
-        token_quota: u64,
-        
-        /// Max concurrent agents
-        #[arg(long, default_value = "10")]
-        max_agents: u32,
-        
-        /// Base data directory
-        #[arg(long, default_value = "~/.multiclaw")]
-        base_data_dir: String,
-    },
-    
-    /// List all instances
-    List,
-    
-    /// Start an instance
-    Start {
-        /// Instance ID
-        id: String,
-    },
-    
-    /// Stop an instance
-    Stop {
-        /// Instance ID
-        id: String,
-    },
-}
-
-#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
-enum InstanceTypeArg {
-    #[value(name = "market_research")]
-    MarketResearch,
-    #[value(name = "product_development")]
-    ProductDevelopment,
-    #[value(name = "customer_service")]
-    CustomerService,
-    #[value(name = "data_analysis")]
-    DataAnalysis,
-    #[value(name = "general")]
-    General,
-    #[value(name = "custom")]
-    Custom,
 }
 
 #[derive(Subcommand, Debug)]
@@ -1180,84 +1106,6 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
-        Commands::Instance { instance_command } => {
-            return handle_instance_command(&instance_command, &config).await;
-        },
-    }
-}
-
-async fn handle_instance_command(
-    command: &InstanceCommands,
-    config: &Config,
-) -> Result<()> {
-    use std::sync::Arc;
-    
-    // 创建实例管理器
-    let instance_manager = Arc::new(instance::InstanceManager::new());
-    let config_manager = Arc::new(instance::ConfigManager::new(config.workspace_dir.clone()).await.map_err(|e| anyhow::anyhow!("{}", e))?);
-    
-    match command {
-        InstanceCommands::Create { name, instance_type, token_quota, max_agents, base_data_dir } => {
-            let resource_quota = instance::ResourceQuota {
-                tokens_per_minute: *token_quota as u32,
-                max_concurrent_agents: *max_agents,
-                storage_limit_mb: 1000, // 默认 1GB
-                api_calls_per_minute: 1000, // 默认 1000 次/分钟
-            };
-            
-            let ceo_config = instance::CEOConfig {
-                model_preference: "gpt-4".to_string(),
-                personality: "analytical".to_string(),
-                resource_limits: resource_quota.clone(),
-            };
-            
-            let create_request = instance::CreateInstanceRequest {
-                name: name.clone(),
-                instance_type: convert_instance_type(*instance_type),
-                quota: resource_quota,
-                ceo_config,
-                ceo_channel: None,
-                base_data_dir: shellexpand::tilde(base_data_dir).to_string(),
-            };
-            
-            let instance_id = instance_manager.create_instance(create_request).await.map_err(|e| anyhow::anyhow!("{}", e))?;
-            println!("✅ 实例创建成功！");
-            println!("ID: {}", instance_id);
-            println!("Name: {}", name);
-            println!("Type: {:?}", instance_type);
-            println!("Data Dir: {}/instances/{}", shellexpand::tilde(base_data_dir), instance_id);
-        },
-        InstanceCommands::List => {
-            let instances: Vec<(String, instance::InstanceStatus)> = instance_manager.list_instances().await;
-            println!("Instances ({} total):", instances.len());
-            for (id, status) in instances {
-                println!("  - {} ({:?})", id, status);
-            }
-        },
-        InstanceCommands::Start { id } => {
-            // 实现启动实例的逻辑
-            println!("Starting instance: {}", id);
-            // 实际实现中会调用 instance_manager.start_instance(id)
-        },
-        InstanceCommands::Stop { id } => {
-            // 实现停止实例的逻辑
-            instance_manager.stop_instance(id).await.map_err(|e| anyhow::anyhow!("{}", e))?;
-            println!("Stopped instance: {}", id);
-        },
-    }
-    
-    Ok(())
-}
-
-// Helper function to convert InstanceTypeArg to InstanceType
-fn convert_instance_type(instance_type: InstanceTypeArg) -> instance::InstanceType {
-    match instance_type {
-        InstanceTypeArg::MarketResearch => instance::InstanceType::MarketResearch,
-        InstanceTypeArg::ProductDevelopment => instance::InstanceType::ProductDevelopment,
-        InstanceTypeArg::CustomerService => instance::InstanceType::CustomerService,
-        InstanceTypeArg::DataAnalysis => instance::InstanceType::DataAnalysis,
-        InstanceTypeArg::General => instance::InstanceType::General,
-        InstanceTypeArg::Custom => instance::InstanceType::Custom,
     }
 }
 

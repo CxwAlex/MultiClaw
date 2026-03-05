@@ -18,6 +18,7 @@
 //! register it in [`detect::create_sandbox`]. See `AGENTS.md` §7.5 for security
 //! change guidelines.
 
+pub mod access_control;
 pub mod audit;
 #[cfg(feature = "sandbox-bubblewrap")]
 pub mod bubblewrap;
@@ -42,6 +43,8 @@ pub mod secrets;
 pub mod syscall_anomaly;
 pub mod traits;
 
+#[allow(unused_imports)]
+pub use access_control::{AccessControlManager, User, Role, ApiKey, PermissionRule, AccessLevel, ResourceType, Action};
 #[allow(unused_imports)]
 pub use audit::{AuditEvent, AuditEventType, AuditLogger};
 #[allow(unused_imports)]

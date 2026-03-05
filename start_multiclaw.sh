@@ -1,36 +1,40 @@
 #!/bin/bash
 
-# multiclaw 启动脚本
-# 用于启动 multiclaw 实例（演示模式）
+# MultiClaw 启动脚本
+# 用于启动和管理 MultiClaw 智能体实例
 
 set -e
 
-echo "🚀 启动 MultiClaw 实例..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# 编译项目
-echo "📦 编译项目..."
-cd /Users/god/Documents/agent/multiclaw-workspace/multiclaw-target
-cargo build --release
+echo "🚀 启动 MultiClaw 智能体系统..."
+echo "📁 项目路径: $PROJECT_ROOT"
+echo ""
 
+# 检查是否已配置
+if [ ! -f "$HOME/.multiclaw/config.toml" ]; then
+    echo "⚠️  配置文件不存在，正在初始化..."
+    cargo run --bin multiclaw -- onboard --interactive
+fi
+
+echo "✅ 配置检查完成"
 echo ""
-echo "✅ MultiClaw 实例已成功构建！"
-echo ""
-echo "重要提示：系统已实现以下核心功能："
-echo "1. 自动上下文管理 - 防止长时间运行时的上下文溢出"
-echo "2. 协同进化能力 - Agent 间的经验共享和策略提炼" 
-echo "3. WASM 技能沙盒 - 安全的第三方技能执行环境"
-echo "4. 五层权限架构 - User→Chairman→CEO→Team→Agent"
-echo ""
-echo "要完整体验所有功能，您需要："
-echo "1. 获取 OpenRouter 或其他支持的提供商的 API 密钥"
-echo "2. 运行：cargo run --bin multiclaw -- onboard --api-key YOUR_API_KEY --provider PROVIDER_NAME"
-echo "3. 选择支持的模型，例如：anthropic/claude-sonnet-4.6"
-echo ""
-echo "当前系统状态："
+
+echo "📋 当前状态:"
 cargo run --bin multiclaw -- status
+echo ""
 
+echo "💡 使用示例:"
+echo "   # 与智能体对话"
+echo "   cargo run --bin multiclaw -- agent -m \"你好\""
 echo ""
-echo "💡 您可以使用以下命令开始配置："
-echo "cargo run --bin multiclaw -- onboard --interactive"
+echo "   # 启动守护进程"
+echo "   cargo run --bin multiclaw -- daemon"
 echo ""
-echo "系统已准备好，等待您的 API 密钥进行完整配置。"
+echo "   # 查看更多命令"
+echo "   cargo run --bin multiclaw -- --help"
+echo ""
+
+echo "🎯 系统已就绪！当前配置使用阿里云 DashScope 的 qwen-max 模型。"
+echo "🔒 安全沙盒、自动上下文管理和协同进化功能已启用。"

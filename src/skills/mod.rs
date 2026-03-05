@@ -3,6 +3,8 @@
 
 mod compat;
 mod wasm_runtime;
+mod create_company;
+
 pub use compat::{
     Skill, SkillTool, ParameterSpec, load_skills_with_config, skills_to_prompt_with_mode,
     load_skills_with_config_and_workspace, load_skills_with_config_and_workspace_dir,
@@ -12,6 +14,9 @@ pub use wasm_runtime::{
     WasmSkillRuntime, WasmRuntimeConfig, WasmSkillInstance, WasmSkillInput,
     WasmSkillOutput, SkillExecutionContext, ExecutionStatus as WasmExecutionStatus,
     ExecutionStats
+};
+pub use create_company::{
+    CreateCompanySkill, CompanyCreationGuideSkill
 };
 
 // 保留原有的高级功能

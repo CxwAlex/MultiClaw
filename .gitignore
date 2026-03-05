@@ -36,3 +36,4 @@ credentials.json
 
 # Nix
 result
+configure_auth.sh
