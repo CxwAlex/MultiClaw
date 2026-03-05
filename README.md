@@ -73,6 +73,11 @@ Use this board for important notices (breaking changes, security advisories, mai
 - ⚡ **Fast Cold Starts:** Single-binary Rust runtime keeps command and daemon startup near-instant for daily operations.
 - 🌍 **Portable Architecture:** One binary-first workflow across ARM, x86, and RISC-V with swappable providers/channels/tools.
 - 🔍 **Research Phase:** Proactive information gathering through tools before response generation — reduces hallucinations by fact-checking first.
+- 👔 **Enterprise Multi-Instance:** Chairman Agent as user avatar managing multiple isolated company instances.
+- 🔄 **A2A Cross-Company Communication:** Agent-to-Agent protocol supporting inter-instance collaboration.
+- 📊 **Five-Level Observability:** L1-L5 dashboard system providing full visibility from individual Agent to global user view.
+- 🛡️ **Autonomous Recovery:** Self-healing infrastructure with checkpoint management and automatic failover.
+- 🧱 **Resource Isolation:** Strict quotas and allocation policies preventing resource contention between instances.
 
 ### Why teams pick MultiClaw
 
