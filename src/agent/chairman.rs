@@ -2,6 +2,11 @@
 //! 用户的 AI 分身，统一管理所有 MultiClaw 实例
 
 use crate::a2a::A2AGateway;
+use crate::agent::ceo_agent::CEOConfig;
+use crate::agent::ChairmanConfig;
+use crate::instance::{InstanceManager, ConfigManager};
+use crate::skills::{SkillsOrchestration, SkillExecutor, SkillContext, CreateCompanySkill, CompanyCreationGuideSkill};
+use crate::core::{MemoryCore, ResourceCore, HealthCore};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -15,6 +20,8 @@ use tokio::time::{sleep, Duration};
 pub struct ChairmanAgent {
     /// 用户 ID
     pub user_id: String,
+    /// 董事长名称
+    pub name: String,
     /// 绑定用户终端（主入口）
     pub user_channel: String,
     /// 管理的所有实例
@@ -27,6 +34,14 @@ pub struct ChairmanAgent {
     pub decision_filter: DecisionFilter,
     /// A2A 网关（跨实例通信）
     pub a2a_gateway: Arc<A2AGateway>,
+    /// 实例管理器
+    pub instance_manager: Arc<InstanceManager>,
+    /// 配置管理器
+    pub config_manager: Arc<ConfigManager>,
+    /// 技能编排系统
+    pub skills_orchestration: Arc<SkillsOrchestration>,
+    /// 董事长配置
+    pub config: ChairmanConfig,
 }
 
 /// 实例句柄
@@ -84,12 +99,6 @@ pub struct ResourceQuota {
     pub api_calls_per_minute: u32,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CEOConfig {
-    pub model_preference: String,
-    pub personality: String,
-    pub resource_limits: ResourceQuota,
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct CreateInstanceRequest {
@@ -99,6 +108,13 @@ pub struct CreateInstanceRequest {
     pub ceo_config: CEOConfig,
     /// CEO 绑定的独立通信通道（可选）
     pub ceo_channel: Option<String>,
+    /// 基础数据目录
+    #[serde(default = "default_base_data_dir")]
+    pub base_data_dir: String,
+}
+
+fn default_base_data_dir() -> String {
+    shellexpand::tilde("~/.multiclaw").to_string()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,6 +153,9 @@ pub struct QuickCreateRequest {
     pub quota: ResourceQuota,
     pub ceo_config: CEOConfig,
     pub ceo_channel: Option<String>,
+    /// 基础数据目录
+    #[serde(default = "default_base_data_dir")]
+    pub base_data_dir: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -171,22 +190,107 @@ pub enum DecisionResult {
 }
 
 impl ChairmanAgent {
-    /// 启动时自动创建
-    pub async fn initialize(user_id: String, user_channel: String) -> Result<Self, Box<dyn std::error::Error>> {
+    /// 使用完整配置初始化董事长 Agent
+    pub async fn initialize_with_config(
+        config: ChairmanConfig,
+        user_id: String,
+        user_channel: String,
+        instance_manager: Arc<InstanceManager>,
+        config_manager: Arc<ConfigManager>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        // 创建 A2A 网关
+        let a2a_gateway = Arc::new(A2AGateway::new());
+        
+        // 创建核心组件
+        let memory_core = Arc::new(MemoryCore::new(a2a_gateway.clone()));
+        let resource_core = Arc::new(ResourceCore::new());
+        let health_core = Arc::new(HealthCore::new());
+        
+        // 创建技能编排系统
+        let skills_orchestration = Arc::new(SkillsOrchestration::new(
+            a2a_gateway.clone(),
+            memory_core,
+            resource_core,
+            health_core,
+        ));
+        
         let chairman = Self {
             user_id,
+            name: config.name.clone(),
             user_channel,
             instances: DashMap::new(),
             global_resource: Arc::new(GlobalResourceManager::new()),
             aggregator: Arc::new(InformationAggregator::new()),
             decision_filter: DecisionFilter::default(),
-            a2a_gateway: Arc::new(A2AGateway::new()),
+            a2a_gateway,
+            instance_manager,
+            config_manager,
+            skills_orchestration,
+            config: config.clone(),
         };
 
+        // 注册董事长专属技能
+        chairman.register_chairman_skills().await?;
+        
         // 加载现有实例（如果有）
         chairman.load_existing_instances().await?;
-        
+
         Ok(chairman)
+    }
+
+    /// 启动时自动创建（简化版本，用于向后兼容）
+    pub async fn initialize(user_id: String, user_channel: String) -> Result<Self, Box<dyn std::error::Error>> {
+        let config = ChairmanConfig::default();
+        
+        // 使用临时目录作为基础目录，避免依赖用户配置
+        let temp_base_dir = std::env::temp_dir().join("multiclaw_test");
+        std::fs::create_dir_all(&temp_base_dir).ok();
+        
+        let instance_manager = Arc::new(InstanceManager::new());
+        let config_manager = Arc::new(ConfigManager::new(temp_base_dir).await
+            .map_err(|e| format!("Failed to create ConfigManager: {}", e))?);
+        
+        Self::initialize_with_config(config, user_id, user_channel, instance_manager, config_manager).await
+    }
+
+    /// 注册董事长专属技能
+    async fn register_chairman_skills(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // 注册创建公司技能
+        let create_company_skill = Arc::new(CreateCompanySkill::new(
+            self.instance_manager.clone(),
+            self.config_manager.clone(),
+        ));
+        self.skills_orchestration.register_skill(create_company_skill);
+        
+        // 注册公司创建引导技能
+        let company_creation_guide = Arc::new(CompanyCreationGuideSkill::new(
+            self.instance_manager.clone(),
+            self.config_manager.clone(),
+        ));
+        self.skills_orchestration.register_skill(company_creation_guide);
+        
+        tracing::info!("Registered {} chairman skills", 2);
+        Ok(())
+    }
+
+    /// 执行技能
+    pub async fn execute_skill(
+        &self,
+        skill_name: &str,
+        inputs: HashMap<String, serde_json::Value>,
+    ) -> Result<crate::skills::SkillExecutionResult, Box<dyn std::error::Error>> {
+        let context = SkillContext {
+            skill_id: skill_name.to_string(),
+            executor_id: self.user_id.clone(),
+            executor_type: crate::skills::ExecutorType::Chairman,
+            inputs,
+            access_token: String::new(),
+            priority: 5,
+            timeout_secs: 300,
+            start_time: Utc::now(),
+        };
+        
+        self.skills_orchestration.execute_skill(context).await
     }
 
     /// 创建新实例（分公司）
@@ -199,13 +303,50 @@ impl ChairmanAgent {
             return Err("全局资源不足，请先释放已有实例或申请增加配额".into());
         }
 
-        // 2. 创建实例
+        // 2. 转换为 instance 模块的请求类型
+        let instance_request = crate::instance::CreateInstanceRequest {
+            name: request.name.clone(),
+            instance_type: match request.instance_type {
+                InstanceType::MarketResearch => crate::instance::InstanceType::MarketResearch,
+                InstanceType::ProductDevelopment => crate::instance::InstanceType::ProductDevelopment,
+                InstanceType::CustomerService => crate::instance::InstanceType::CustomerService,
+                InstanceType::DataAnalysis => crate::instance::InstanceType::DataAnalysis,
+                InstanceType::General => crate::instance::InstanceType::General,
+                InstanceType::Custom => crate::instance::InstanceType::Custom,
+            },
+            quota: crate::instance::ResourceQuota {
+                tokens_per_minute: request.quota.tokens_per_minute,
+                max_concurrent_agents: request.quota.max_concurrent_agents,
+                storage_limit_mb: request.quota.storage_limit_mb,
+                api_calls_per_minute: request.quota.api_calls_per_minute,
+            },
+            ceo_config: crate::instance::CEOConfig {
+                model_preference: request.ceo_config.model_preference.clone(),
+                personality: request.ceo_config.personality.clone(),
+                resource_limits: crate::instance::ResourceQuota {
+                    tokens_per_minute: request.ceo_config.resource_limits.tokens_per_minute,
+                    max_concurrent_agents: request.ceo_config.resource_limits.max_concurrent_agents,
+                    storage_limit_mb: request.ceo_config.resource_limits.storage_limit_mb,
+                    api_calls_per_minute: request.ceo_config.resource_limits.api_calls_per_minute,
+                },
+            },
+            ceo_channel: request.ceo_channel.clone(),
+            base_data_dir: request.base_data_dir.clone(),
+        };
+
+        // 3. 使用 instance_manager 创建实例
+        let instance_id = self.instance_manager.create_instance(instance_request).await?;
+
+        // 4. 分配全局资源
+        self.global_resource.allocate(&request.quota).await?;
+
+        // 5. 创建实例句柄
         let instance = InstanceHandle {
-            id: Uuid::new_v4().to_string(),
+            id: instance_id.clone(),
             name: request.name.clone(),
             instance_type: request.instance_type,
-            ceo_agent_id: String::new(),
-            ceo_channel: request.ceo_channel.clone(), // CEO 独立通信通道
+            ceo_agent_id: format!("ceo_{}", instance_id),
+            ceo_channel: request.ceo_channel.clone(),
             status: InstanceStatus::Initializing,
             quota: request.quota.clone(),
             active_projects: 0,
@@ -213,23 +354,15 @@ impl ChairmanAgent {
             last_active_at: Utc::now(),
         };
 
-        // 3. 分配全局资源
-        self.global_resource.allocate(&request.quota).await?;
-
-        // 4. 创建 CEO Agent (这里简化，实际需要与具体的实例创建逻辑集成)
-        // let ceo = self.create_ceo_agent(&instance, request.ceo_config.clone()).await?;
-        let mut instance = instance;
-        instance.ceo_agent_id = format!("ceo_{}", instance.id); // 简化实现
-        instance.status = InstanceStatus::Running;
-
-        // 5. 注册实例
+        // 6. 注册实例
         self.instances.insert(instance.id.clone(), instance.clone());
 
-        // 6. 通知用户
+        // 7. 通知用户
         self.notify_user(&format!(
-            "✅ 已创建新实例「{}」(类型：{:?})\n初始资源：{:?}\nCEO 已就绪{}",
+            "✅ 已创建新实例「{}」(类型：{:?})\nID: {}\n初始资源：{:?}\nCEO 已就绪{}",
             instance.name,
             instance.instance_type,
+            instance.id,
             instance.quota,
             instance.ceo_channel.as_ref()
                 .map(|c| format!("\n独立通信：{}", c))
@@ -327,6 +460,7 @@ impl ChairmanAgent {
                 quota: request.quota.clone(),
                 ceo_config: request.ceo_config.clone(),
                 ceo_channel: request.ceo_channel.clone(),
+                base_data_dir: request.base_data_dir.clone(),
             }).await?
         };
 
@@ -381,6 +515,19 @@ impl ChairmanAgent {
         // 这里应该从持久化存储加载现有实例
         // 简化实现：暂时不加载任何实例
         Ok(())
+    }
+
+    /// 创建 CEO Agent
+    async fn create_ceo_agent(&self, instance: &InstanceHandle, config: CEOConfig) -> Result<crate::agent::CEOAgent, Box<dyn std::error::Error>> {
+        // 这里应该实际创建 CEO Agent 的逻辑
+        // 为了简化，我们返回一个模拟的 CEO Agent
+        let ceo = crate::agent::CEOAgent::new(
+            instance.id.clone(),
+            instance.name.clone(),
+            config,
+        );
+
+        Ok(ceo)
     }
 
     async fn notify_user(&self, message: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -512,7 +659,7 @@ mod tests {
     #[tokio::test]
     async fn test_chairman_agent_creation() {
         let chairman = ChairmanAgent::initialize("user123".to_string(), "telegram_abc".to_string()).await.unwrap();
-        
+
         assert_eq!(chairman.user_id, "user123");
         assert_eq!(chairman.user_channel, "telegram_abc");
         assert_eq!(chairman.instances.len(), 0);
@@ -521,7 +668,7 @@ mod tests {
     #[tokio::test]
     async fn test_instance_creation() {
         let chairman = ChairmanAgent::initialize("user123".to_string(), "telegram_abc".to_string()).await.unwrap();
-        
+
         let request = CreateInstanceRequest {
             name: "Test Instance".to_string(),
             instance_type: InstanceType::General,
@@ -532,21 +679,25 @@ mod tests {
                 api_calls_per_minute: 100,
             },
             ceo_config: CEOConfig {
+                name: "Test CEO".to_string(),
                 model_preference: "gpt-4".to_string(),
                 personality: "analytical".to_string(),
-                resource_limits: ResourceQuota {
+                resource_limits: crate::agent::ceo_agent::ResourceQuota {
                     tokens_per_minute: 1000,
                     max_concurrent_agents: 10,
                     storage_limit_mb: 100,
                     api_calls_per_minute: 100,
                 },
+                decision_mode: crate::agent::ceo_agent::DecisionMode::SemiAutomatic,
+                channel: None,
             },
             ceo_channel: Some("discord_test".to_string()),
+            base_data_dir: "/tmp/test_multiclaw".to_string(),
         };
 
         let result = chairman.create_instance(&request).await;
         assert!(result.is_ok());
-        
+
         let instance = result.unwrap();
         assert_eq!(instance.name, "Test Instance");
         assert_eq!(instance.instance_type, InstanceType::General);
@@ -556,11 +707,11 @@ mod tests {
     #[tokio::test]
     async fn test_global_status() {
         let chairman = ChairmanAgent::initialize("user123".to_string(), "telegram_abc".to_string()).await.unwrap();
-        
+
         let status = chairman.get_global_status();
         assert_eq!(status.total_instances, 0);
         assert_eq!(status.running_instances, 0);
-        
+
         // 创建一个实例
         let request = CreateInstanceRequest {
             name: "Test Instance".to_string(),
@@ -572,20 +723,24 @@ mod tests {
                 api_calls_per_minute: 100,
             },
             ceo_config: CEOConfig {
+                name: "Test CEO".to_string(),
                 model_preference: "gpt-4".to_string(),
                 personality: "analytical".to_string(),
-                resource_limits: ResourceQuota {
+                resource_limits: crate::agent::ceo_agent::ResourceQuota {
                     tokens_per_minute: 1000,
                     max_concurrent_agents: 10,
                     storage_limit_mb: 100,
                     api_calls_per_minute: 100,
                 },
+                decision_mode: crate::agent::ceo_agent::DecisionMode::SemiAutomatic,
+                channel: None,
             },
             ceo_channel: Some("discord_test".to_string()),
+            base_data_dir: "/tmp/test_multiclaw".to_string(),
         };
-        
+
         chairman.create_instance(&request).await.unwrap();
-        
+
         let status = chairman.get_global_status();
         assert_eq!(status.total_instances, 1);
         assert_eq!(status.running_instances, 1);
@@ -594,7 +749,7 @@ mod tests {
     #[tokio::test]
     async fn test_quick_create() {
         let chairman = ChairmanAgent::initialize("user123".to_string(), "telegram_abc".to_string()).await.unwrap();
-        
+
         let request = QuickCreateRequest {
             instance_name: "Quick Test Instance".to_string(),
             instance_type: InstanceType::MarketResearch,
@@ -608,21 +763,25 @@ mod tests {
                 api_calls_per_minute: 100,
             },
             ceo_config: CEOConfig {
+                name: "Test CEO".to_string(),
                 model_preference: "gpt-4".to_string(),
                 personality: "analytical".to_string(),
-                resource_limits: ResourceQuota {
+                resource_limits: crate::agent::ceo_agent::ResourceQuota {
                     tokens_per_minute: 1000,
                     max_concurrent_agents: 10,
                     storage_limit_mb: 100,
                     api_calls_per_minute: 100,
                 },
+                decision_mode: crate::agent::ceo_agent::DecisionMode::SemiAutomatic,
+                channel: None,
             },
             ceo_channel: Some("telegram_quick".to_string()),
+            base_data_dir: "/tmp/test_multiclaw".to_string(),
         };
 
         let result = chairman.quick_create(&request).await;
         assert!(result.is_ok());
-        
+
         let quick_result = result.unwrap();
         assert!(!quick_result.instance_id.is_empty());
         assert!(!quick_result.team_id.is_empty());

@@ -1,8 +1,11 @@
 use crate::config::Config;
+use crate::agent::{ChairmanAgent, ChairmanConfig};
+use crate::instance::{InstanceManager, ConfigManager};
 use anyhow::{bail, Result};
 use chrono::Utc;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
@@ -41,9 +44,53 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
 
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
+    // 初始化实例管理器和配置管理器
+    let instance_manager = Arc::new(InstanceManager::new());
+    let config_manager = Arc::new(ConfigManager::new(config.workspace_dir.clone()).await
+        .map_err(|e| anyhow::anyhow!("Failed to create ConfigManager: {}", e))?);
+
+    // 尝试加载董事长配置文件，如果不存在则使用默认配置
+    let chairman_config_path = config.workspace_dir.join("chairman_config.toml");
+    let chairman_config = if chairman_config_path.exists() {
+        match ChairmanConfig::from_file(&chairman_config_path).await {
+            Ok(cfg) => {
+                tracing::info!("Loaded chairman config from {}", chairman_config_path.display());
+                cfg
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load chairman config, using defaults: {}", e);
+                ChairmanConfig::default()
+            }
+        }
+    } else {
+        tracing::info!("No chairman config found, using defaults");
+        let default_config = ChairmanConfig::default();
+        // 保存默认配置以便用户可以修改
+        if let Err(e) = default_config.save_to_file(&chairman_config_path).await {
+            tracing::warn!("Failed to save default chairman config: {}", e);
+        }
+        default_config
+    };
+
+    // 初始化董事长 Agent（用户分身）
+    let chairman = Arc::new(ChairmanAgent::initialize_with_config(
+        chairman_config,
+        format!("user_{}", uuid::Uuid::new_v4()), // TODO: 从配置或用户输入获取实际用户ID
+        config.gateway.host.clone(), // 使用 gateway host 作为默认渠道
+        instance_manager.clone(),
+        config_manager.clone(),
+    ).await.map_err(|e| anyhow::anyhow!("Failed to initialize Chairman Agent: {}", e))?);
+
+    tracing::info!(
+        "Chairman Agent initialized: name={}, user_id={}",
+        chairman.name,
+        chairman.user_id
+    );
+
     {
         let gateway_cfg = config.clone();
         let gateway_host = host.clone();
+        let chairman_clone = chairman.clone(); // 克隆董事长 Agent 引用
         handles.push(spawn_component_supervisor(
             "gateway",
             initial_backoff,
@@ -51,7 +98,11 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             move || {
                 let cfg = gateway_cfg.clone();
                 let host = gateway_host.clone();
-                async move { crate::gateway::run_gateway(&host, port, cfg).await }
+                let chairman_inner = chairman_clone.clone();
+                async move { 
+                    // 将董事长 Agent 注入到网关配置中（如果需要）
+                    crate::gateway::run_gateway(&host, port, cfg).await 
+                }
             },
         ));
     }

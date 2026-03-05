@@ -457,13 +457,79 @@ MultiClaw v6.0 introduces a comprehensive five-layer architecture for enhanced m
 | Component | Description |
 |-----------|-------------|
 | **A2A Protocol** | Agent-to-Agent communication with 4-level routing (L1: internal, L2: team, L3: cross-team, L4: cross-instance) |
-| **Chairman Agent** | User's AI avatar for unified instance management and dual-channel communication |
+| **Chairman Agent** | **Default instance (main agent)** - User's AI avatar for unified instance management. `multiclaw agent` loads Chairman's identity; `multiclaw daemon` enables full instance creation capabilities |
 | **MemoryCore** | Four-tier memory system (Global/Cluster/Team/Local) with sharing policies |
 | **ResourceCore** | Resource quota management, dynamic allocation, usage monitoring |
 | **HealthCore** | Component health monitoring, automatic fault detection, recovery mechanisms |
 | **RecoveryCore** | Instance health monitoring, task checkpoint snapshots, automatic recovery flows |
 | **Five-Layer Dashboard** | Complete observability from User → Chairman → CEO → Team → Agent |
 | **Skills Orchestration** | Skill registration, execution planning, resource validation, status tracking |
+
+#### Workspace Directory Structure
+
+```
+~/.multiclaw/                           # Main instance (Chairman)
+├── config.toml                         # Global configuration
+├── chairman_config.toml                # Chairman configuration
+├── IDENTITY.md                         # Chairman identity (default instance)
+├── SOUL.md                             # Chairman persona
+├── AGENTS.md                           # Chairman operation guide
+├── USER.md                             # User information
+├── MEMORY.md                           # Chairman long-term memory
+├── instances/                          # Sub-instances directory
+│   └── {company_id}/                   # Company instance
+│       ├── config.toml                 # Instance configuration
+│       ├── IDENTITY.md                 # CEO identity
+│       ├── SOUL.md                     # CEO persona
+│       ├── AGENTS.md                   # CEO operation guide
+│       ├── USER.md                     # Reports to Chairman
+│       ├── MEMORY.md                   # CEO memory
+│       └── teams/                      # Teams directory
+├── sessions/                           # Session records
+├── memory/                             # Memory storage
+├── state/                              # State files
+├── cron/                               # Scheduled tasks
+└── skills/                             # User skills
+```
+
+**Instance Hierarchy:**
+```
+User
+  │
+  ▼
+Chairman Agent (Main Instance, Default)
+  │
+  ├── Company Instance 1 → CEO Agent → Teams → Workers
+  ├── Company Instance 2 → CEO Agent → Teams → Workers
+  └── Company Instance N → CEO Agent → Teams → Workers
+```
+
+**Instance Creation Flow:**
+```
+multiclaw onboard → Creates Chairman files (IDENTITY.md, SOUL.md, etc.)
+multiclaw daemon  → Loads ChairmanAgent, registers create_company skill
+
+User: "Create a research company"
+    ↓
+ChairmanAgent uses create_company skill
+    ↓
+Creates ~/.multiclaw/instances/{company_id}/
+Generates CEO files
+Starts sub-instance process
+```
+
+**create_company Skill Configuration Options:**
+
+| Option | Description |
+|--------|-------------|
+| `name` | Company name |
+| `company_type` | 6 preset types + custom |
+| `token_quota` | 10K-10M tokens/minute |
+| `max_agents` | 1-100 agents |
+| `ceo_model` | Any model |
+| `ceo_personality` | analytical/creative/strategic/practical |
+| `channel` | Optional channel binding |
+| `base_data_dir` | Custom data directory |
 
 #### Five-Layer Dashboard System
 

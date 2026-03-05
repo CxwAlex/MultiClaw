@@ -27,7 +27,7 @@ pub struct ChairmanConfig {
     pub observability: ObservabilitySettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum SystemMode {
     /// 完全自动模式（最小干预）
     FullyAutomated,

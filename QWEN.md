@@ -64,10 +64,30 @@ MultiClaw v6.0 实现了全新的五层架构设计：
 - 审计日志记录
 
 #### 董事长 Agent（用户分身）
-- 统一管理所有 MultiClaw 实例
+**董事长 Agent 是默认实例（主实例）**，用户的 AI 分身，管理所有 MultiClaw 子实例。
+
+**核心职责：**
+- 统一管理所有 MultiClaw 实例（公司）
 - 双通道通信（通过董事长或直接联系 CEO）
 - 实例生命周期管理
 - 资源分配和权限控制
+- 审批重要决策（超阈值操作）
+
+**运行模式：**
+- `multiclaw agent` — 基础交互，加载董事长的 IDENTITY.md/SOUL.md
+- `multiclaw daemon` — 完整服务，带 ChairmanAgent 和实例管理能力（注册 create_company 等技能）
+
+**创建公司技能 (`create_company`) 支持的配置：**
+| 配置项 | 说明 |
+|--------|------|
+| 公司名称 | `name` |
+| 公司类型 | 6种预设类型 + custom |
+| Token 配额 | 10K-10M/分钟 |
+| 最大 Agent 数 | 1-100 |
+| CEO 模型 | 任意模型 |
+| CEO 性格 | analytical/creative/strategic/practical |
+| 通信渠道 | 可选绑定 |
+| 数据目录 | 自定义 |
 
 #### MemoryCore（分级记忆系统）
 - 四级记忆：全局/集群/团队/本地
@@ -161,6 +181,74 @@ let result = company_manager.quick_create(
 - 执行计划管理
 - 资源需求验证
 - 执行状态跟踪
+
+## 工作区目录结构
+
+### 主实例（董事长）目录
+
+```
+~/.multiclaw/
+├── config.toml              # 全局配置
+├── chairman_config.toml     # 董事长配置
+├── IDENTITY.md              # 董事长身份（默认实例）
+├── SOUL.md                  # 董事长角色
+├── AGENTS.md                # 董事长操作指南
+├── USER.md                  # 用户信息
+├── MEMORY.md                # 董事长记忆
+├── TOOLS.md                 # 本地工具笔记
+├── BOOTSTRAP.md             # 初始化引导
+├── instances/               # 子实例目录
+│   └── {company_id}/        # 公司实例
+│       ├── config.toml      # 实例配置
+│       ├── IDENTITY.md      # CEO 身份
+│       ├── SOUL.md          # CEO 角色
+│       ├── AGENTS.md        # CEO 操作指南
+│       ├── USER.md          # 汇报对象（指向董事长）
+│       ├── MEMORY.md        # CEO 记忆
+│       └── teams/           # 团队目录
+├── sessions/                # 会话记录
+├── memory/                  # 记忆存储
+├── state/                   # 状态文件
+├── cron/                    # 定时任务
+└── skills/                  # 用户技能
+```
+
+### 实例创建流程
+
+```
+multiclaw onboard
+    ↓
+创建董事长文件 (IDENTITY.md, SOUL.md, etc.)
+创建 chairman_config.toml
+创建 instances/ 目录
+
+multiclaw daemon
+    ↓
+加载 chairman_config.toml
+初始化 ChairmanAgent
+注册 create_company 技能
+
+用户: "帮我创建一个研究公司"
+    ↓
+ChairmanAgent 使用 create_company 技能
+    ↓
+创建 ~/.multiclaw/instances/{company_id}/
+生成 CEO 文件 (IDENTITY.md, SOUL.md, etc.)
+启动子实例进程
+```
+
+### 实例层级关系
+
+```
+用户
+  │
+  ▼
+董事长 Agent（主实例，默认实例）
+  │
+  ├── 公司实例1 → CEO Agent → 团队 → Worker
+  ├── 公司实例2 → CEO Agent → 团队 → Worker
+  └── 公司实例N → CEO Agent → 团队 → Worker
+```
 
 ## 构建与运行
 

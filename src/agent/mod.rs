@@ -1,4 +1,5 @@
 pub mod chairman_config;
+pub mod ceo_agent;
 
 #[allow(clippy::module_inception)]
 pub mod agent;
@@ -19,6 +20,8 @@ pub use agent::{Agent, AgentBuilder};
 pub use chairman::ChairmanAgent;
 #[allow(unused_imports)]
 pub use chairman_config::{ChairmanConfig, CHAIRMAN_AGENT_PROMPTS};
+#[allow(unused_imports)]
+pub use ceo_agent::CEOAgent;
 #[allow(unused_imports)]
 pub use loop_::{process_message, run};
 
