@@ -8,15 +8,30 @@ use std::sync::Arc;
 use std::path::PathBuf;
 
 use super::traits::{Tool, ToolResult};
+use crate::config::Config;
 
 /// 创建公司工具
 pub struct CreateCompanyTool {
     workspace_dir: PathBuf,
+    /// 主配置引用（用于继承关键设置）
+    parent_config: Arc<Config>,
 }
 
 impl CreateCompanyTool {
     pub fn new(workspace_dir: PathBuf) -> Self {
-        Self { workspace_dir }
+        // 向后兼容：允许只传入 workspace_dir
+        Self {
+            workspace_dir,
+            parent_config: Arc::new(Config::default()),
+        }
+    }
+
+    /// 使用主配置创建工具
+    pub fn with_config(workspace_dir: PathBuf, config: Arc<Config>) -> Self {
+        Self {
+            workspace_dir,
+            parent_config: config,
+        }
     }
 }
 
@@ -258,25 +273,124 @@ r#"# {} CEO - 记忆存储
             name
         );
 
-        // 生成 config.toml
+        // 生成完整的 config.toml（继承主配置）
+        let parent_api_key = self.parent_config.api_key.as_deref().unwrap_or("");
+        let parent_provider = self.parent_config.default_provider.as_deref().unwrap_or("openrouter");
+        let parent_api_url = self.parent_config.api_url.as_deref().unwrap_or("");
+
         let config_content = format!(
 r#"# {} 实例配置
 # 由董事长 Agent 自动生成
+# 继承主配置的关键设置
+
+# ─────────────────────────────────────────────────────────────
+# 核心配置
+# ─────────────────────────────────────────────────────────────
+
+## API 配置（继承自主配置）
+api_key = "{}"
+default_provider = "{}"
+default_model = "{}"
+{}
+default_temperature = 0.7
+
+# ─────────────────────────────────────────────────────────────
+# 实例元数据
+# ─────────────────────────────────────────────────────────────
 
 [instance]
 id = "{}"
 name = "{}"
 type = "{}"
+created_by = "chairman"
+
+# ─────────────────────────────────────────────────────────────
+# 资源配额
+# ─────────────────────────────────────────────────────────────
 
 [resource]
 token_quota_per_minute = {}
 max_agents = {}
+storage_limit_mb = 1000
+
+# ─────────────────────────────────────────────────────────────
+# CEO 配置
+# ─────────────────────────────────────────────────────────────
 
 [ceo]
 model = "{}"
 personality = "{}"
+
+# ─────────────────────────────────────────────────────────────
+# 运行时配置
+# ─────────────────────────────────────────────────────────────
+
+[runtime]
+kind = "native"
+sandbox_profile = "strict"
+
+# ─────────────────────────────────────────────────────────────
+# 记忆配置
+# ─────────────────────────────────────────────────────────────
+
+[memory]
+backend = "sqlite"
+enable_embeddings = false
+max_entries = 10000
+
+# ─────────────────────────────────────────────────────────────
+# 安全配置
+# ─────────────────────────────────────────────────────────────
+
+[autonomy]
+level = "supervised"
+require_approval_for = ["shell", "file_write", "file_edit"]
+block_high_risk_commands = true
+
+[security]
+sandbox_enabled = true
+allowed_paths = []
+
+# ─────────────────────────────────────────────────────────────
+# 可观测性
+# ─────────────────────────────────────────────────────────────
+
+[observability]
+backend = "log"
+
+# ─────────────────────────────────────────────────────────────
+# 心跳配置
+# ─────────────────────────────────────────────────────────────
+
+[heartbeat]
+enabled = true
+interval_secs = 60
+
+# ─────────────────────────────────────────────────────────────
+# 网关配置
+# ─────────────────────────────────────────────────────────────
+
+[gateway]
+host = "127.0.0.1"
+port = 0  # 自动分配
+pairing_required = true
 "#,
-            name, company_id, name, company_type_str, token_quota, max_agents, ceo_model, ceo_personality
+            name,
+            parent_api_key,
+            parent_provider,
+            ceo_model,
+            if parent_api_url.is_empty() {
+                String::new()
+            } else {
+                format!("api_url = \"{}\"\n", parent_api_url)
+            },
+            company_id,
+            name,
+            company_type_str,
+            token_quota,
+            max_agents,
+            ceo_model,
+            ceo_personality
         );
 
         // 写入文件

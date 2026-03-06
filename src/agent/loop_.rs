@@ -1490,7 +1490,10 @@ pub async fn run(
     }
 
     // ── 董事长工具：创建公司实例 ─────────────────────────────────
-    let create_company_tool = Box::new(tools::CreateCompanyTool::new(config.workspace_dir.clone()));
+    let create_company_tool = Box::new(tools::CreateCompanyTool::with_config(
+        config.workspace_dir.clone(),
+        Arc::new(config.clone()),
+    ));
     tools_registry.push(create_company_tool);
     tracing::info!("Chairman tool 'create_company' registered");
 
