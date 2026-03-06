@@ -1489,6 +1489,11 @@ pub async fn run(
         tools_registry.extend(peripheral_tools);
     }
 
+    // ── 董事长工具：创建公司实例 ─────────────────────────────────
+    let create_company_tool = Box::new(tools::CreateCompanyTool::new(config.workspace_dir.clone()));
+    tools_registry.push(create_company_tool);
+    tracing::info!("Chairman tool 'create_company' registered");
+
     // ── Resolve provider ─────────────────────────────────────────
     let provider_name = provider_override
         .as_deref()
