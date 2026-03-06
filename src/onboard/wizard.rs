@@ -96,6 +96,11 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     print_step(1, 11, "Workspace Setup");
     let (workspace_dir, config_path) = setup_workspace().await?;
+    // config_dir 是配置根目录（如 ~/.multiclaw），董事长文件存放在此
+    let config_dir = config_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| workspace_dir.clone());
     match resolve_interactive_onboarding_mode(&config_path, force)? {
         InteractiveOnboardingMode::FullOnboarding => {}
         InteractiveOnboardingMode::UpdateProviderOnly => {
@@ -132,6 +137,7 @@ pub async fn run_wizard(force: bool) -> Result<Config> {
 
     print_step(11, 11, "Workspace Files");
     scaffold_workspace(
+        &config_dir,
         &workspace_dir,
         &project_ctx,
         &memory_config.backend,
@@ -579,6 +585,7 @@ async fn run_quick_setup_with_home(
                 .into(),
     };
     scaffold_workspace(
+        &multiclaw_dir,
         &workspace_dir,
         &default_ctx,
         &config.memory.backend,
@@ -5581,8 +5588,17 @@ fn setup_tunnel() -> Result<crate::config::TunnelConfig> {
 
 // ── Step 6: Scaffold workspace files ─────────────────────────────
 
+/// 初始化工作区文件
+/// 
+/// # 参数
+/// - `config_dir`: 配置根目录（如 `~/.multiclaw`），董事长文件存放在此
+/// - `workspace_dir`: 工作数据目录（如 `~/.multiclaw/workspace`），数据文件存放在此
+/// - `ctx`: 项目上下文
+/// - `memory_backend`: 内存后端类型
+/// - `identity_config`: 身份配置
 #[allow(clippy::too_many_lines)]
 async fn scaffold_workspace(
+    config_dir: &Path,
     workspace_dir: &Path,
     ctx: &ProjectContext,
     memory_backend: &str,
@@ -5920,18 +5936,19 @@ async fn scaffold_workspace(
         aieos_identity_file = Some((path, content));
     }
 
-    // Create subdirectories
+    // Create subdirectories in workspace_dir (data directory)
     // instances/ 用于存放子实例（公司）的数据
-    let subdirs = ["sessions", "memory", "state", "cron", "skills", "instances"];
-    for dir in &subdirs {
+    let data_subdirs = ["sessions", "memory", "state", "cron", "skills", "instances"];
+    for dir in &data_subdirs {
         fs::create_dir_all(workspace_dir.join(dir)).await?;
     }
 
+    // 董事长文件写入 config_dir（根目录）
     let mut created = 0;
     let mut skipped = 0;
 
     for (filename, content) in &files {
-        let path = workspace_dir.join(filename);
+        let path = config_dir.join(filename);
         if path.exists() {
             skipped += 1;
         } else {
@@ -5941,7 +5958,7 @@ async fn scaffold_workspace(
     }
 
     if let Some((relative_path, content)) = aieos_identity_file {
-        let path = workspace_dir.join(&relative_path);
+        let path = config_dir.join(&relative_path);
         if path.exists() {
             skipped += 1;
         } else {
@@ -5954,7 +5971,8 @@ async fn scaffold_workspace(
     }
 
     // 创建董事长配置文件（全局配置，管理所有实例）
-    let chairman_config_path = workspace_dir.join("chairman_config.toml");
+    // 放在 config_dir 根目录
+    let chairman_config_path = config_dir.join("chairman_config.toml");
     if !chairman_config_path.exists() {
         let chairman_config = crate::agent::ChairmanConfig::default();
         let config_content = toml::to_string_pretty(&chairman_config)
@@ -5970,7 +5988,7 @@ async fn scaffold_workspace(
         style("✓").green().bold(),
         style(created).green(),
         style(skipped).dim(),
-        style(subdirs.len()).green()
+        style(data_subdirs.len()).green()
     );
 
     // Show workspace tree
@@ -5978,28 +5996,29 @@ async fn scaffold_workspace(
     println!("  {}", style("Workspace layout:").dim());
     println!(
         "  {}",
-        style(format!("  {}/", workspace_dir.display())).dim()
+        style(format!("  {}/", config_dir.display())).dim()
     );
-    // 显示子目录
-    for (i, dir) in subdirs.iter().enumerate() {
-        let prefix = if i == subdirs.len() - 1 {
-            "└──"
-        } else {
-            "├──"
-        };
-        println!("  {}", style(format!("  {prefix} {dir}/")).dim());
-    }
-    // 显示文件
+    // 显示董事长文件
     for (i, (filename, _)) in files.iter().enumerate() {
         let prefix = if i == files.len() - 1 {
             "└──"
         } else {
             "├──"
         };
-        println!("  {}", style(format!("    {prefix} {filename}")).dim());
+        println!("  {}", style(format!("  {prefix} {filename}")).dim());
     }
     // 显示 chairman_config.toml
-    println!("  {}", style("    └── chairman_config.toml").dim());
+    println!("  {}", style("  └── chairman_config.toml").dim());
+    // 显示数据子目录
+    println!("  {}", style("  └── workspace/").dim());
+    for (i, dir) in data_subdirs.iter().enumerate() {
+        let prefix = if i == data_subdirs.len() - 1 {
+            "    └──"
+        } else {
+            "    ├──"
+        };
+        println!("  {}", style(format!("  {prefix} {dir}/")).dim());
+    }
 
     Ok(())
 }
@@ -6556,6 +6575,7 @@ mod tests {
         let ctx = ProjectContext::default();
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "markdown",
             &crate::config::IdentityConfig::default(),
@@ -6583,6 +6603,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = ProjectContext::default();
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -6615,6 +6636,7 @@ mod tests {
         let ctx = ProjectContext::default();
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -6641,7 +6663,7 @@ mod tests {
             aieos_inline: None,
         };
 
-        scaffold_workspace(tmp.path(), &ctx, "sqlite", &identity_config)
+        scaffold_workspace(tmp.path(), tmp.path(), &ctx, "sqlite", &identity_config)
             .await
             .unwrap();
 
@@ -6675,7 +6697,7 @@ mod tests {
             .await
             .unwrap();
 
-        scaffold_workspace(tmp.path(), &ctx, "sqlite", &identity_config)
+        scaffold_workspace(tmp.path(), tmp.path(), &ctx, "sqlite", &identity_config)
             .await
             .unwrap();
 
@@ -6695,6 +6717,7 @@ mod tests {
             ..Default::default()
         };
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -6729,6 +6752,7 @@ mod tests {
         };
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -6761,6 +6785,7 @@ mod tests {
             ..Default::default()
         };
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -6820,6 +6845,7 @@ mod tests {
         };
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -6859,6 +6885,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = ProjectContext::default(); // all empty
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -6914,6 +6941,7 @@ mod tests {
 
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -6952,6 +6980,7 @@ mod tests {
 
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -6964,6 +6993,7 @@ mod tests {
 
         // Run again — should not change anything
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -6985,6 +7015,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = ProjectContext::default();
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -7012,6 +7043,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = ProjectContext::default();
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "markdown",
@@ -7043,6 +7075,7 @@ mod tests {
         let ctx = ProjectContext::default();
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "markdown",
             &crate::config::IdentityConfig::default(),
@@ -7068,6 +7101,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = ProjectContext::default();
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -7109,6 +7143,7 @@ mod tests {
         let ctx = ProjectContext::default();
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "markdown",
             &crate::config::IdentityConfig::default(),
@@ -7136,6 +7171,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let ctx = ProjectContext::default();
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",
@@ -7176,6 +7212,7 @@ mod tests {
         let ctx = ProjectContext::default();
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -7209,6 +7246,7 @@ mod tests {
         };
         scaffold_workspace(
             tmp.path(),
+            tmp.path(),
             &ctx,
             "sqlite",
             &crate::config::IdentityConfig::default(),
@@ -7241,6 +7279,7 @@ mod tests {
                     .into(),
         };
         scaffold_workspace(
+            tmp.path(),
             tmp.path(),
             &ctx,
             "sqlite",

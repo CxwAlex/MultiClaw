@@ -184,33 +184,122 @@ let result = company_manager.quick_create(
 
 ## 工作区目录结构
 
-### 主实例（董事长）目录
+### 单个董事长实例（默认）
 
 ```
-~/.multiclaw/
-├── config.toml              # 全局配置
-├── chairman_config.toml     # 董事长配置
-├── IDENTITY.md              # 董事长身份（默认实例）
-├── SOUL.md                  # 董事长角色
-├── AGENTS.md                # 董事长操作指南
-├── USER.md                  # 用户信息
-├── MEMORY.md                # 董事长记忆
-├── TOOLS.md                 # 本地工具笔记
-├── BOOTSTRAP.md             # 初始化引导
-├── instances/               # 子实例目录
-│   └── {company_id}/        # 公司实例
-│       ├── config.toml      # 实例配置
-│       ├── IDENTITY.md      # CEO 身份
-│       ├── SOUL.md          # CEO 角色
-│       ├── AGENTS.md        # CEO 操作指南
-│       ├── USER.md          # 汇报对象（指向董事长）
-│       ├── MEMORY.md        # CEO 记忆
-│       └── teams/           # 团队目录
-├── sessions/                # 会话记录
-├── memory/                  # 记忆存储
-├── state/                   # 状态文件
-├── cron/                    # 定时任务
-└── skills/                  # 用户技能
+~/.multiclaw/                           # 董事长实例根目录
+├── config.toml                         # 全局配置
+├── chairman_config.toml                # 董事长配置
+│
+├── IDENTITY.md                         # 董事长身份
+├── SOUL.md                             # 董事长角色
+├── AGENTS.md                           # 董事长操作指南
+├── USER.md                             # 用户信息
+├── MEMORY.md                           # 董事长记忆
+├── TOOLS.md                            # 本地工具笔记
+├── BOOTSTRAP.md                        # 初始化引导
+├── HEARTBEAT.md                        # 心跳任务
+│
+├── instances/                          # 公司实例目录
+│   ├── {company_id}.json               # 公司实例状态文件
+│   └── {company_id}/                   # 公司实例数据
+│       ├── config.toml                 # 公司配置
+│       ├── IDENTITY.md                 # CEO 身份
+│       ├── SOUL.md                     # CEO 角色
+│       ├── AGENTS.md                   # CEO 操作指南
+│       ├── USER.md                     # 汇报对象（指向董事长）
+│       ├── MEMORY.md                   # CEO 记忆
+│       ├── sessions/                   # 会话记录
+│       ├── memory/                     # 记忆存储
+│       ├── state/                      # 状态文件
+│       ├── cron/                       # 定时任务
+│       ├── skills/                     # 技能目录
+│       └── teams/                      # 团队目录
+│           └── {team_id}/              # 团队数据
+│               ├── IDENTITY.md         # 团队负责人身份
+│               ├── SOUL.md             # 团队负责人角色
+│               ├── AGENTS.md           # 团队操作指南
+│               ├── MEMORY.md           # 团队记忆
+│               └── agents/             # Worker Agent 目录
+│                   └── {agent_id}/     # Agent 数据
+│                       ├── IDENTITY.md # Agent 身份
+│                       ├── SOUL.md     # Agent 角色
+│                       ├── AGENTS.md   # Agent 操作指南
+│                       └── MEMORY.md   # Agent 记忆
+│
+├── sessions/                           # 会话记录
+├── memory/                             # 记忆存储
+├── state/                              # 状态文件
+├── cron/                               # 定时任务
+└── skills/                             # 用户技能
+```
+
+### 多个董事长实例
+
+```
+~/.multiclaw_instances/                 # 多实例根目录
+├── project_a/                          # 董事长实例 A
+│   ├── config.toml                     # 实例 A 配置
+│   ├── chairman_config.toml            # 董事长配置
+│   ├── IDENTITY.md                     # 董事长 A 身份
+│   ├── SOUL.md                         # 董事长 A 角色
+│   ├── AGENTS.md                       # 董事长 A 操作指南
+│   ├── USER.md                         # 用户信息
+│   ├── MEMORY.md                       # 董事长 A 记忆
+│   ├── workspace/                      # 工作数据目录
+│   │   ├── sessions/                   # 会话记录
+│   │   ├── memory/                     # 记忆存储
+│   │   ├── state/                      # 状态文件
+│   │   ├── cron/                       # 定时任务
+│   │   ├── skills/                     # 技能目录
+│   │   └── instances/                  # 公司实例目录
+│   └── logs/                           # 日志目录
+│       ├── daemon.stdout.log           # 标准输出日志
+│       └── daemon.stderr.log           # 错误日志
+│
+├── project_b/                          # 董事长实例 B
+│   └── ...                             # 同上结构
+│
+└── project_c/                          # 董事长实例 C
+    └── ...                             # 同上结构
+```
+
+### 实例层级关系
+
+```
+用户
+  │
+  ▼
+董事长 Agent（主实例，默认实例）
+  │  ~/.multiclaw/
+  │  - 管理所有 MultiClaw 实例
+  │  - 监控全局资源
+  │  - 审批重要决策
+  │
+  ├── 公司实例1 → CEO Agent
+  │     │  ~/.multiclaw/instances/company_1/
+  │     │  - 管理公司日常运营
+  │     │  - 协调团队资源
+  │     │
+  │     ├── 团队 A → TeamLeadAgent
+  │     │     │  ~/.multiclaw/instances/company_1/teams/team_a/
+  │     │     │  - 协调团队成员
+  │     │     │  - 分配任务
+  │     │     │
+  │     │     ├── Worker Agent 1
+  │     │     │     ~/.multiclaw/instances/company_1/teams/team_a/agents/agent_1/
+  │     │     │
+  │     │     └── Worker Agent 2
+  │     │           ~/.multiclaw/instances/company_1/teams/team_a/agents/agent_2/
+  │     │
+  │     └── 团队 B → TeamLeadAgent
+  │           ~/.multiclaw/instances/company_1/teams/team_b/
+  │
+  ├── 公司实例2 → CEO Agent
+  │     ~/.multiclaw/instances/company_2/
+  │
+  └── 公司实例N → CEO Agent
+        ~/.multiclaw/instances/company_n/
 ```
 
 ### 实例创建流程
@@ -226,7 +315,7 @@ multiclaw daemon
     ↓
 加载 chairman_config.toml
 初始化 ChairmanAgent
-注册 create_company 技能
+注册 create_company 等技能
 
 用户: "帮我创建一个研究公司"
     ↓
@@ -236,11 +325,6 @@ ChairmanAgent 使用 create_company 技能
 生成 CEO 文件 (IDENTITY.md, SOUL.md, etc.)
 启动子实例进程
 ```
-
-### 实例层级关系
-
-```
-用户
   │
   ▼
 董事长 Agent（主实例，默认实例）

@@ -21,6 +21,39 @@ use crate::config::Config;
 /// 下一个可用端口（从 8001 开始）
 static NEXT_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(8001);
 
+/// 实例状态（持久化到文件）
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct InstanceState {
+    /// 实例 ID
+    pub id: String,
+    /// 实例名称
+    pub name: String,
+    /// 实例类型
+    pub instance_type: String,
+    /// 端口
+    pub port: u16,
+    /// 进程 PID
+    pub pid: u32,
+    /// 数据目录
+    pub data_dir: String,
+    /// 配置文件路径
+    pub config_file: String,
+    /// Token 配额
+    pub token_quota: u32,
+    /// 最大 Agent 数
+    pub max_agents: u32,
+    /// CEO 模型
+    pub ceo_model: String,
+    /// CEO 性格
+    pub ceo_personality: String,
+    /// 绑定的通信渠道
+    pub channel: Option<String>,
+    /// 创建时间
+    pub created_at: String,
+    /// 状态
+    pub status: String,
+}
+
 /// 公司类型预设配置
 #[derive(Clone, Debug)]
 pub struct CompanyTypePreset {
@@ -112,6 +145,9 @@ pub fn get_company_presets() -> HashMap<String, CompanyTypePreset> {
 
 /// 创建公司工具
 pub struct CreateCompanyTool {
+    /// 配置根目录（如 ~/.multiclaw），实例目录存放在此
+    config_dir: PathBuf,
+    /// 工作数据目录（如 ~/.multiclaw/workspace）
     workspace_dir: PathBuf,
     /// 主配置引用（用于继承关键设置）
     parent_config: Arc<Config>,
@@ -121,7 +157,12 @@ pub struct CreateCompanyTool {
 
 impl CreateCompanyTool {
     pub fn new(workspace_dir: PathBuf) -> Self {
+        // 向后兼容：如果只传入 workspace_dir，假设 config_dir 是其父目录
+        let config_dir = workspace_dir.parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| workspace_dir.clone());
         Self {
+            config_dir,
             workspace_dir,
             parent_config: Arc::new(Config::default()),
             processes: Arc::new(RwLock::new(HashMap::new())),
@@ -130,7 +171,24 @@ impl CreateCompanyTool {
 
     /// 使用主配置创建工具
     pub fn with_config(workspace_dir: PathBuf, config: Arc<Config>) -> Self {
+        // 从 config.config_path 获取 config_dir
+        let config_dir = config.config_path.parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| workspace_dir.parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| workspace_dir.clone()));
         Self {
+            config_dir,
+            workspace_dir,
+            parent_config: config,
+            processes: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// 使用完整的目录配置创建工具
+    pub fn with_dirs(config_dir: PathBuf, workspace_dir: PathBuf, config: Arc<Config>) -> Self {
+        Self {
+            config_dir,
             workspace_dir,
             parent_config: config,
             processes: Arc::new(RwLock::new(HashMap::new())),
@@ -161,17 +219,19 @@ impl CreateCompanyTool {
            .arg(port.to_string())
            .env("MULTICLAW_INSTANCE_ID", instance_id)
            .env("MULTICLAW_DATA_DIR", data_dir.to_string_lossy().to_string())
-           .env("MULTICLAW_CONFIG", config_path.to_string_lossy().to_string())
-           .kill_on_drop(true);
+           .env("MULTICLAW_CONFIG", config_path.to_string_lossy().to_string());
+        // 注意：不使用 kill_on_drop(true)，让进程独立运行
+        // 进程会持续运行直到用户手动停止或系统重启
 
-        let child = cmd.spawn()
+        // 分离进程，让它独立运行
+        let mut child = cmd.spawn()
             .map_err(|e| format!("启动实例进程失败: {}", e))?;
 
         let pid = child.id().unwrap_or(0);
 
-        // 保存进程引用
-        let mut processes = self.processes.write().await;
-        processes.insert(instance_id.to_string(), child);
+        // 将进程分离（detach），让它成为独立进程
+        // 这样即使父进程退出，子进程也会继续运行
+        // 我们不保存进程引用，让进程独立运行
 
         Ok(pid)
     }
@@ -296,8 +356,8 @@ impl Tool for CreateCompanyTool {
         // 分配端口
         let port = self.assign_port();
 
-        // 创建实例目录
-        let instances_dir = self.workspace_dir.join("instances");
+        // 创建实例目录（在 config_dir/instances 下）
+        let instances_dir = self.config_dir.join("instances");
         let instance_dir = instances_dir.join(&company_id);
 
         if let Err(e) = tokio::fs::create_dir_all(&instance_dir).await {
@@ -604,6 +664,33 @@ pairing_required = true
             }
         };
 
+        // ── 保存实例状态到文件（持久化）─────────────────────
+        let instance_state = InstanceState {
+            id: company_id.clone(),
+            name: name.clone(),
+            instance_type: company_type_str.to_string(),
+            port,
+            pid,
+            data_dir: instance_dir.display().to_string(),
+            config_file: config_path.display().to_string(),
+            token_quota,
+            max_agents,
+            ceo_model: ceo_model.clone(),
+            ceo_personality: ceo_personality.clone(),
+            channel: channel.clone(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            status: "running".to_string(),
+        };
+
+        // 保存实例状态到 instances 目录
+        let state_file = instances_dir.join(format!("{}.json", company_id));
+        if let Err(e) = tokio::fs::write(
+            &state_file,
+            serde_json::to_string_pretty(&instance_state).unwrap_or_default(),
+        ).await {
+            tracing::warn!("Failed to save instance state: {}", e);
+        }
+
         // 生成成功结果
         let result_json = serde_json::json!({
             "instance_id": company_id,
@@ -620,8 +707,8 @@ pairing_required = true
             "ceo_personality": ceo_personality,
             "channel": channel,
             "message": format!(
-                "公司 '{}' 创建成功！\n\n实例信息：\n- 实例ID: {}\n- 端口: {}\n- 进程PID: {}\n- 数据目录: {}\n\nCEO Agent 已初始化，正在启动中...",
-                name, company_id, port, pid, instance_dir.display()
+                "公司 '{}' 创建成功！\n\n实例信息：\n- 实例ID: {}\n- 端口: {}\n- 进程PID: {}\n- 数据目录: {}\n\nCEO Agent 已初始化，正在启动中...\n\n访问地址: http://127.0.0.1:{}",
+                name, company_id, port, pid, instance_dir.display(), port
             )
         });
 

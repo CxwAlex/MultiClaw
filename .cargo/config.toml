@@ -10,3 +10,12 @@ linker = "armv7a-linux-androideabi21-clang"
 
 [target.aarch64-linux-android]
 linker = "aarch64-linux-android21-clang"
+
+# 屏蔽常见警告
+[build]
+rustflags = [
+    "-A", "unused_imports",
+    "-A", "unused_variables", 
+    "-A", "unused_mut",
+    "-A", "unexpected_cfgs",
+]
