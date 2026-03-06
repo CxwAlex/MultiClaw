@@ -336,6 +336,38 @@ cargo deny check
 | `multiclaw skills` | 管理技能（v6.0 新增） |
 | `multiclaw config schema` | 导出配置 JSON Schema |
 
+## 注册为正式服务
+      1 # 安装为系统服务
+      2 ./target/release/multiclaw service install
+      3 
+      4 # 查看状态
+      5 ./target/release/multiclaw service status
+      6 
+      7 # 启动/停止/重启
+      8 ./target/release/multiclaw service start
+      9 ./target/release/multiclaw service stop
+     10 ./target/release/multiclaw service restart
+     11 
+     12 # 卸载服务
+     13 ./target/release/multiclaw service uninstall
+
+## 生产环境重启
+     1 # 1. 编译新版本
+     2 cargo build --release
+     3 
+     4 # 2. 重启服务（会加载新的二进制）
+     5 ./target/release/multiclaw service restart
+
+    需要重新 install 的情况：
+
+
+    ┌─────────────────────────────────────┬──────────────────────────┐
+    │ 场景                                │ 处理方式                 │
+    ├─────────────────────────────────────┼──────────────────────────┤
+    │ 同路径编译（target/release）        │ restart                  │
+    │ 路径改变（debug → release）         │ 重新 install             │
+    │ 安装到系统目录（如 /usr/local/bin） │ 先复制二进制，再 restart │
+
 ## 项目结构
 
 ```

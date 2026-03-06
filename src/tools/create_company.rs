@@ -1,28 +1,130 @@
 // src/tools/create_company.rs
 //! 创建公司实例的工具
 //! 允许董事长 Agent 在对话中创建新的公司实例
+//!
+//! 创建的公司实例是独立的 MultiClaw 进程：
+//! - 有自己的端口
+//! - 有独立的数据目录
+//! - 由 CEO Agent 管理
+//! - 向董事长汇报
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::path::PathBuf;
+use std::collections::HashMap;
+use tokio::sync::RwLock;
 
 use super::traits::{Tool, ToolResult};
 use crate::config::Config;
+
+/// 下一个可用端口（从 8001 开始）
+static NEXT_PORT: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(8001);
+
+/// 公司类型预设配置
+#[derive(Clone, Debug)]
+pub struct CompanyTypePreset {
+    pub type_name: String,
+    pub display_name: String,
+    pub description: String,
+    pub default_token_quota: u32,
+    pub default_max_agents: u32,
+    pub default_ceo_model: String,
+    pub default_ceo_personality: String,
+}
+
+/// 获取公司类型预设
+pub fn get_company_presets() -> HashMap<String, CompanyTypePreset> {
+    let mut presets = HashMap::new();
+
+    presets.insert("market_research".to_string(), CompanyTypePreset {
+        type_name: "market_research".to_string(),
+        display_name: "市场研究".to_string(),
+        description: "市场调研、竞品分析、行业报告".to_string(),
+        default_token_quota: 500_000,
+        default_max_agents: 30,
+        default_ceo_model: "qwen-max".to_string(),
+        default_ceo_personality: "analytical".to_string(),
+    });
+
+    presets.insert("product_development".to_string(), CompanyTypePreset {
+        type_name: "product_development".to_string(),
+        display_name: "产品开发".to_string(),
+        description: "产品设计、研发管理、迭代规划".to_string(),
+        default_token_quota: 800_000,
+        default_max_agents: 50,
+        default_ceo_model: "qwen-max".to_string(),
+        default_ceo_personality: "creative".to_string(),
+    });
+
+    presets.insert("customer_service".to_string(), CompanyTypePreset {
+        type_name: "customer_service".to_string(),
+        display_name: "客户服务".to_string(),
+        description: "客户支持、工单处理、FAQ 管理".to_string(),
+        default_token_quota: 600_000,
+        default_max_agents: 40,
+        default_ceo_model: "qwen-plus".to_string(),
+        default_ceo_personality: "practical".to_string(),
+    });
+
+    presets.insert("data_analysis".to_string(), CompanyTypePreset {
+        type_name: "data_analysis".to_string(),
+        display_name: "数据分析".to_string(),
+        description: "数据挖掘、报表生成、趋势分析".to_string(),
+        default_token_quota: 400_000,
+        default_max_agents: 20,
+        default_ceo_model: "qwen-max".to_string(),
+        default_ceo_personality: "analytical".to_string(),
+    });
+
+    presets.insert("personal_assistant".to_string(), CompanyTypePreset {
+        type_name: "personal_assistant".to_string(),
+        display_name: "个人助理".to_string(),
+        description: "日程管理、任务追踪、生活助手".to_string(),
+        default_token_quota: 200_000,
+        default_max_agents: 10,
+        default_ceo_model: "qwen-plus".to_string(),
+        default_ceo_personality: "balanced".to_string(),
+    });
+
+    presets.insert("general".to_string(), CompanyTypePreset {
+        type_name: "general".to_string(),
+        display_name: "通用型".to_string(),
+        description: "通用任务处理、灵活配置".to_string(),
+        default_token_quota: 100_000,
+        default_max_agents: 10,
+        default_ceo_model: "qwen-plus".to_string(),
+        default_ceo_personality: "balanced".to_string(),
+    });
+
+    presets.insert("custom".to_string(), CompanyTypePreset {
+        type_name: "custom".to_string(),
+        display_name: "自定义".to_string(),
+        description: "完全自定义配置".to_string(),
+        default_token_quota: 100_000,
+        default_max_agents: 10,
+        default_ceo_model: "qwen-plus".to_string(),
+        default_ceo_personality: "balanced".to_string(),
+    });
+
+    presets
+}
 
 /// 创建公司工具
 pub struct CreateCompanyTool {
     workspace_dir: PathBuf,
     /// 主配置引用（用于继承关键设置）
     parent_config: Arc<Config>,
+    /// 运行中的实例进程
+    processes: Arc<RwLock<HashMap<String, tokio::process::Child>>>,
 }
 
 impl CreateCompanyTool {
     pub fn new(workspace_dir: PathBuf) -> Self {
-        // 向后兼容：允许只传入 workspace_dir
         Self {
             workspace_dir,
             parent_config: Arc::new(Config::default()),
+            processes: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -31,7 +133,61 @@ impl CreateCompanyTool {
         Self {
             workspace_dir,
             parent_config: config,
+            processes: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// 分配下一个可用端口
+    fn assign_port(&self) -> u16 {
+        NEXT_PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// 启动实例进程
+    async fn start_instance_process(
+        &self,
+        instance_id: &str,
+        port: u16,
+        config_path: &std::path::Path,
+        data_dir: &std::path::Path,
+    ) -> Result<u32, String> {
+        use tokio::process::Command;
+
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("获取当前可执行文件路径失败: {}", e))?;
+
+        let mut cmd = Command::new(exe);
+        cmd.arg("daemon")
+           .arg("--port")
+           .arg(port.to_string())
+           .env("MULTICLAW_INSTANCE_ID", instance_id)
+           .env("MULTICLAW_DATA_DIR", data_dir.to_string_lossy().to_string())
+           .env("MULTICLAW_CONFIG", config_path.to_string_lossy().to_string())
+           .kill_on_drop(true);
+
+        let child = cmd.spawn()
+            .map_err(|e| format!("启动实例进程失败: {}", e))?;
+
+        let pid = child.id().unwrap_or(0);
+
+        // 保存进程引用
+        let mut processes = self.processes.write().await;
+        processes.insert(instance_id.to_string(), child);
+
+        Ok(pid)
+    }
+
+    /// 获取公司类型列表（用于工具描述）
+    fn get_company_types_description() -> String {
+        let presets = get_company_presets();
+        let mut desc = String::from("可选的公司类型：\n");
+        for (key, preset) in presets.iter() {
+            desc.push_str(&format!(
+                "- `{}`: {} - {} (默认 {} token/分钟, {} agents)\n",
+                key, preset.display_name, preset.description,
+                preset.default_token_quota, preset.default_max_agents
+            ));
+        }
+        desc
     }
 }
 
@@ -93,6 +249,9 @@ impl Tool for CreateCompanyTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        // 获取公司预设
+        let presets = get_company_presets();
+
         // 解析参数
         let name = args.get("name")
             .and_then(|v| v.as_str())
@@ -103,22 +262,28 @@ impl Tool for CreateCompanyTool {
             .and_then(|v| v.as_str())
             .unwrap_or("general");
 
+        // 获取预设配置
+        let preset = presets.get(company_type_str).cloned().unwrap_or_else(|| {
+            presets.get("general").cloned().unwrap()
+        });
+
+        // 使用用户提供的值或预设默认值
         let token_quota = args.get("token_quota")
             .and_then(|v| v.as_u64())
-            .unwrap_or(1_000_000) as u32;
+            .unwrap_or(preset.default_token_quota as u64) as u32;
 
         let max_agents = args.get("max_agents")
             .and_then(|v| v.as_u64())
-            .unwrap_or(10) as u32;
+            .unwrap_or(preset.default_max_agents as u64) as u32;
 
         let ceo_model = args.get("ceo_model")
             .and_then(|v| v.as_str())
-            .unwrap_or("qwen-max")
+            .unwrap_or(&preset.default_ceo_model)
             .to_string();
 
         let ceo_personality = args.get("ceo_personality")
             .and_then(|v| v.as_str())
-            .unwrap_or("balanced")
+            .unwrap_or(&preset.default_ceo_personality)
             .to_string();
 
         let channel = args.get("channel")
@@ -127,6 +292,9 @@ impl Tool for CreateCompanyTool {
 
         // 生成公司 ID
         let company_id = format!("company_{}", uuid::Uuid::new_v4().simple());
+
+        // 分配端口
+        let port = self.assign_port();
 
         // 创建实例目录
         let instances_dir = self.workspace_dir.join("instances");
@@ -141,15 +309,7 @@ impl Tool for CreateCompanyTool {
         }
 
         // 生成 CEO Agent 文件
-        let company_type_display = match company_type_str {
-            "market_research" => "市场研究",
-            "product_development" => "产品开发",
-            "customer_service" => "客户服务",
-            "data_analysis" => "数据分析",
-            "personal_assistant" => "个人助理",
-            "custom" => "自定义",
-            _ => "通用",
-        };
+        let company_type_display = &preset.display_name;
 
         // 生成 IDENTITY.md
         let identity_content = format!(
@@ -424,18 +584,45 @@ pairing_required = true
             });
         }
 
+        // ── 启动实例进程 ─────────────────────────────────────
+        let config_path = instance_dir.join("config.toml");
+
+        // 启动独立进程
+        let pid = match self.start_instance_process(
+            &company_id,
+            port,
+            &config_path,
+            &instance_dir,
+        ).await {
+            Ok(pid) => pid,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("启动实例进程失败: {}", e)),
+                });
+            }
+        };
+
         // 生成成功结果
         let result_json = serde_json::json!({
             "instance_id": company_id,
             "instance_name": name,
             "instance_type": company_type_str,
+            "instance_type_display": company_type_display,
+            "port": port,
+            "pid": pid,
             "data_dir": instance_dir.display().to_string(),
+            "config_file": config_path.display().to_string(),
             "token_quota": token_quota,
             "max_agents": max_agents,
             "ceo_model": ceo_model,
             "ceo_personality": ceo_personality,
             "channel": channel,
-            "message": format!("公司 '{}' 创建成功！CEO Agent 已初始化。", name)
+            "message": format!(
+                "公司 '{}' 创建成功！\n\n实例信息：\n- 实例ID: {}\n- 端口: {}\n- 进程PID: {}\n- 数据目录: {}\n\nCEO Agent 已初始化，正在启动中...",
+                name, company_id, port, pid, instance_dir.display()
+            )
         });
 
         Ok(ToolResult {
