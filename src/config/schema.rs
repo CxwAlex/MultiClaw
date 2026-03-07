@@ -6003,6 +6003,17 @@ impl Config {
         }
     }
 
+    /// Returns the config directory (parent of config_path).
+    ///
+    /// This is where identity files (IDENTITY.md, SOUL.md, etc.) are stored
+    /// for the default/chairman instance.
+    pub fn config_dir(&self) -> PathBuf {
+        self.config_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.workspace_dir.clone())
+    }
+
     fn normalize_reasoning_level_override(raw: Option<&str>, source: &str) -> Option<String> {
         let value = raw?.trim();
         if value.is_empty() {

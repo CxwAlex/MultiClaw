@@ -170,8 +170,11 @@ pub async fn handle_ws_chat(
         }
     }
 
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
-        .into_response()
+    // Configure supported protocols. The client may send:
+    // Sec-WebSocket-Protocol: multiclaw.v1, bearer.<token>
+    // We respond with the first matching protocol from our list.
+    ws.protocols(["multiclaw.v1"])
+        .on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 async fn handle_socket(mut socket: WebSocket, state: AppState) {

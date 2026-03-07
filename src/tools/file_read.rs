@@ -821,6 +821,7 @@ mod tests {
             .observer(make_observer())
             .tool_dispatcher(Box::new(NativeToolDispatcher))
             .workspace_dir(workspace.clone())
+            .config_dir(workspace.clone())
             .build()
             .unwrap();
 
@@ -913,6 +914,7 @@ mod tests {
             .observer(make_observer())
             .tool_dispatcher(Box::new(NativeToolDispatcher))
             .workspace_dir(workspace.clone())
+            .config_dir(workspace.clone())
             .build()
             .unwrap();
 
@@ -996,6 +998,7 @@ mod tests {
             .observer(make_observer())
             .tool_dispatcher(Box::new(XmlToolDispatcher))
             .workspace_dir(workspace.clone())
+            .config_dir(workspace.clone())
             .model_name("gpt-5.3-codex".to_string())
             .build()
             .unwrap();

@@ -11,6 +11,9 @@ const BOOTSTRAP_MAX_CHARS: usize = 20_000;
 
 pub struct PromptContext<'a> {
     pub workspace_dir: &'a Path,
+    /// Config directory where identity files (IDENTITY.md, SOUL.md, etc.) are stored.
+    /// For the default/chairman instance, this is typically ~/.multiclaw/
+    pub config_dir: &'a Path,
     pub model_name: &'a str,
     pub tools: &'a [Box<dyn Tool>],
     pub skills: &'a [Skill],
@@ -83,7 +86,8 @@ impl PromptSection for IdentitySection {
         let mut has_aieos = false;
         if let Some(config) = ctx.identity_config {
             if identity::is_aieos_configured(config) {
-                if let Ok(Some(aieos)) = identity::load_aieos_identity(config, ctx.workspace_dir) {
+                // AIEOS identity files are stored in config_dir
+                if let Ok(Some(aieos)) = identity::load_aieos_identity(config, ctx.config_dir) {
                     let rendered = identity::aieos_to_system_prompt(&aieos);
                     if !rendered.is_empty() {
                         prompt.push_str(&rendered);
@@ -99,6 +103,8 @@ impl PromptSection for IdentitySection {
                 "The following workspace files define your identity, behavior, and context.\n\n",
             );
         }
+        // Identity files (IDENTITY.md, SOUL.md, etc.) are stored in config_dir
+        // for the default/chairman instance (e.g., ~/.multiclaw/)
         for file in [
             "AGENTS.md",
             "SOUL.md",
@@ -108,11 +114,12 @@ impl PromptSection for IdentitySection {
             "HEARTBEAT.md",
             "BOOTSTRAP.md",
         ] {
-            inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
+            inject_workspace_file(&mut prompt, ctx.config_dir, file);
         }
-        let memory_path = ctx.workspace_dir.join("MEMORY.md");
+        // MEMORY.md is stored in config_dir for the chairman instance
+        let memory_path = ctx.config_dir.join("MEMORY.md");
         if memory_path.exists() {
-            inject_workspace_file(&mut prompt, ctx.workspace_dir, "MEMORY.md");
+            inject_workspace_file(&mut prompt, ctx.config_dir, "MEMORY.md");
         }
 
         Ok(prompt)
@@ -159,10 +166,11 @@ impl PromptSection for SkillsSection {
     }
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        Ok(crate::skills::skills_to_prompt_with_mode(
-            ctx.skills,
-            "default"  // 使用默认模式，因为我们简化了函数
-        ))
+        let mode = match ctx.skills_prompt_mode {
+            crate::config::SkillsPromptInjectionMode::Compact => "compact",
+            crate::config::SkillsPromptInjectionMode::Full => "default",
+        };
+        Ok(crate::skills::skills_to_prompt_with_mode(ctx.skills, mode))
     }
 }
 
@@ -313,6 +321,7 @@ mod tests {
         let tools: Vec<Box<dyn Tool>> = vec![];
         let ctx = PromptContext {
             workspace_dir: &workspace,
+            config_dir: &workspace,
             model_name: "test-model",
             tools: &tools,
             skills: &[],
@@ -341,6 +350,7 @@ mod tests {
         let tools: Vec<Box<dyn Tool>> = vec![Box::new(TestTool)];
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp"),
+            config_dir: Path::new("/tmp"),
             model_name: "test-model",
             tools: &tools,
             skills: &[],
@@ -378,6 +388,7 @@ mod tests {
 
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp"),
+            config_dir: Path::new("/tmp"),
             model_name: "test-model",
             tools: &tools,
             skills: &skills,
@@ -418,6 +429,7 @@ mod tests {
 
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp/workspace"),
+            config_dir: Path::new("/tmp/workspace"),
             model_name: "test-model",
             tools: &tools,
             skills: &skills,
@@ -429,7 +441,8 @@ mod tests {
         let output = SkillsSection.build(&ctx).unwrap();
         assert!(output.contains("<available_skills>"));
         assert!(output.contains("<name>deploy</name>"));
-        assert!(output.contains("<location>skills/deploy/SKILL.md</location>"));
+        // Location is displayed as absolute path when set as absolute
+        assert!(output.contains("<location>/tmp/workspace/skills/deploy/SKILL.md</location>") || output.contains("<location>skills/deploy/SKILL.md</location>"));
         assert!(!output.contains("<instruction>Run smoke tests before deploy.</instruction>"));
         assert!(!output.contains("<tools>"));
     }
@@ -439,6 +452,7 @@ mod tests {
         let tools: Vec<Box<dyn Tool>> = vec![];
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp"),
+            config_dir: Path::new("/tmp"),
             model_name: "test-model",
             tools: &tools,
             skills: &[],
@@ -479,6 +493,7 @@ mod tests {
         }];
         let ctx = PromptContext {
             workspace_dir: Path::new("/tmp/workspace"),
+            config_dir: Path::new("/tmp/workspace"),
             model_name: "test-model",
             tools: &tools,
             skills: &skills,

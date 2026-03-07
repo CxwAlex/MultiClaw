@@ -656,9 +656,8 @@ fn moonshot_base_url(name: &str) -> Option<&'static str> {
 }
 
 fn qwen_base_url(name: &str) -> Option<&'static str> {
-    if is_qwen_coding_plan_alias(name) {
-        Some(QWEN_CODING_PLAN_BASE_URL)
-    } else if is_qwen_cn_alias(name) || is_qwen_oauth_alias(name) {
+    // qwen-coding-plan is handled separately in create_provider_with_options
+    if is_qwen_cn_alias(name) || is_qwen_oauth_alias(name) {
         Some(QWEN_CN_BASE_URL)
     } else if is_qwen_intl_alias(name) {
         Some(QWEN_INTL_BASE_URL)
@@ -1181,6 +1180,17 @@ fn create_provider_with_url_and_options(
             key,
             AuthStyle::Bearer,
         ))),
+        // qwen-coding-plan requires a Coding Agent User-Agent
+        name if is_qwen_coding_plan_alias(name) => Ok(Box::new(
+            OpenAiCompatibleProvider::new_with_user_agent_and_vision(
+                "Qwen Coding Plan",
+                QWEN_CODING_PLAN_BASE_URL,
+                key,
+                AuthStyle::Bearer,
+                "QwenCode/1.0",
+                true,
+            )
+        )),
         name if qwen_base_url(name).is_some() => Ok(Box::new(OpenAiCompatibleProvider::new_with_vision(
             "Qwen",
             qwen_base_url(name).expect("checked in guard"),
@@ -2127,10 +2137,8 @@ mod tests {
         assert_eq!(qwen_base_url("qwen-cn"), Some(QWEN_CN_BASE_URL));
         assert_eq!(qwen_base_url("qwen-intl"), Some(QWEN_INTL_BASE_URL));
         assert_eq!(qwen_base_url("qwen-us"), Some(QWEN_US_BASE_URL));
-        assert_eq!(
-            qwen_base_url("qwen-coding-plan"),
-            Some(QWEN_CODING_PLAN_BASE_URL)
-        );
+        // qwen-coding-plan is handled separately, not via qwen_base_url
+        assert_eq!(qwen_base_url("qwen-coding-plan"), None);
         assert_eq!(qwen_base_url("qwen-code"), Some(QWEN_CN_BASE_URL));
 
         assert_eq!(zai_base_url("zai"), Some(ZAI_GLOBAL_BASE_URL));

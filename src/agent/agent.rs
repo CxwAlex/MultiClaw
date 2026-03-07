@@ -30,6 +30,9 @@ pub struct Agent {
     model_name: String,
     temperature: f64,
     workspace_dir: std::path::PathBuf,
+    /// Config directory where identity files (IDENTITY.md, SOUL.md, etc.) are stored.
+    /// For the default/chairman instance, this is typically ~/.multiclaw/
+    config_dir: std::path::PathBuf,
     identity_config: crate::config::IdentityConfig,
     skills: Vec<crate::skills::Skill>,
     skills_prompt_mode: crate::config::SkillsPromptInjectionMode,
@@ -53,6 +56,7 @@ pub struct AgentBuilder {
     model_name: Option<String>,
     temperature: Option<f64>,
     workspace_dir: Option<std::path::PathBuf>,
+    config_dir: Option<std::path::PathBuf>,
     identity_config: Option<crate::config::IdentityConfig>,
     skills: Option<Vec<crate::skills::Skill>>,
     skills_prompt_mode: Option<crate::config::SkillsPromptInjectionMode>,
@@ -77,6 +81,7 @@ impl AgentBuilder {
             model_name: None,
             temperature: None,
             workspace_dir: None,
+            config_dir: None,
             identity_config: None,
             skills: None,
             skills_prompt_mode: None,
@@ -140,6 +145,11 @@ impl AgentBuilder {
 
     pub fn workspace_dir(mut self, workspace_dir: std::path::PathBuf) -> Self {
         self.workspace_dir = Some(workspace_dir);
+        self
+    }
+
+    pub fn config_dir(mut self, config_dir: std::path::PathBuf) -> Self {
+        self.config_dir = Some(config_dir);
         self
     }
 
@@ -223,6 +233,9 @@ impl AgentBuilder {
             temperature: self.temperature.unwrap_or(0.7),
             workspace_dir: self
                 .workspace_dir
+                .unwrap_or_else(|| std::path::PathBuf::from(".")),
+            config_dir: self
+                .config_dir
                 .unwrap_or_else(|| std::path::PathBuf::from(".")),
             identity_config: self.identity_config.unwrap_or_default(),
             skills: self.skills.unwrap_or_default(),
@@ -342,6 +355,7 @@ impl Agent {
             .model_name(model_name)
             .temperature(config.default_temperature)
             .workspace_dir(config.workspace_dir.clone())
+            .config_dir(config.config_dir())
             .classification_config(config.query_classification.clone())
             .available_hints(available_hints)
             .route_model_by_hint(route_model_by_hint)
@@ -387,6 +401,7 @@ impl Agent {
         let instructions = self.tool_dispatcher.prompt_instructions(&self.tools);
         let ctx = PromptContext {
             workspace_dir: &self.workspace_dir,
+            config_dir: &self.config_dir,
             model_name: &self.model_name,
             tools: &self.tools,
             skills: &self.skills,
@@ -841,6 +856,7 @@ mod tests {
             .observer(observer)
             .tool_dispatcher(Box::new(XmlToolDispatcher))
             .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .config_dir(std::path::PathBuf::from("/tmp"))
             .build()
             .expect("agent builder should succeed with valid config");
 
@@ -888,6 +904,7 @@ mod tests {
             .observer(observer)
             .tool_dispatcher(Box::new(NativeToolDispatcher))
             .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .config_dir(std::path::PathBuf::from("/tmp"))
             .build()
             .expect("agent builder should succeed with valid config");
 
@@ -931,6 +948,7 @@ mod tests {
             .observer(observer)
             .tool_dispatcher(Box::new(NativeToolDispatcher))
             .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .config_dir(std::path::PathBuf::from("/tmp"))
             .classification_config(crate::config::QueryClassificationConfig {
                 enabled: true,
                 rules: vec![crate::config::ClassificationRule {

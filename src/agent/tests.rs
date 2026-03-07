@@ -286,6 +286,7 @@ fn build_agent_with(
         .observer(make_observer())
         .tool_dispatcher(dispatcher)
         .workspace_dir(std::env::temp_dir())
+        .config_dir(std::env::temp_dir())
         .build()
         .unwrap()
 }
@@ -303,6 +304,7 @@ fn build_agent_with_memory(
         .observer(make_observer())
         .tool_dispatcher(Box::new(NativeToolDispatcher))
         .workspace_dir(std::env::temp_dir())
+        .config_dir(std::env::temp_dir())
         .auto_save(auto_save)
         .build()
         .unwrap()
@@ -320,6 +322,7 @@ fn build_agent_with_config(
         .observer(make_observer())
         .tool_dispatcher(Box::new(NativeToolDispatcher))
         .workspace_dir(std::env::temp_dir())
+        .config_dir(std::env::temp_dir())
         .config(config)
         .build()
         .unwrap()
@@ -963,6 +966,7 @@ async fn builder_fails_without_provider() {
         .observer(make_observer())
         .tool_dispatcher(Box::new(NativeToolDispatcher))
         .workspace_dir(std::path::PathBuf::from("/tmp"))
+        .config_dir(std::path::PathBuf::from("/tmp"))
         .build();
 
     assert!(result.is_err(), "Building without provider should fail");
