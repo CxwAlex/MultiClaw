@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::agent::{ChairmanAgent, ChairmanConfig};
-use crate::instance::{InstanceManager, ConfigManager};
+use crate::instance::{InstanceManager, ConfigManager, RegistryManager, ChairmanInfo, RegistryInstanceStatus};
 use anyhow::{bail, Result};
 use chrono::Utc;
 use std::future::Future;
@@ -12,19 +12,50 @@ use tokio::time::Duration;
 const STATUS_FLUSH_SECONDS: u64 = 5;
 
 pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
+    // 加载全局实例注册表
+    let registry_manager = Arc::new(RegistryManager::new());
+    registry_manager.load().await;
+    
+    // 检查是否是公司实例（通过环境变量判断）
+    let instance_id = std::env::var("MULTICLAW_INSTANCE_ID").ok();
+    let is_company_instance = instance_id.is_some();
+    
+    // 确定实际使用的端口
+    let actual_port = if is_company_instance {
+        // 公司实例：从注册表获取分配的端口
+        if let Some(ref id) = instance_id {
+            if let Some(info) = registry_manager.get_company(id).await {
+                tracing::info!(
+                    "Starting company instance '{}' on allocated port {}",
+                    info.company_name,
+                    info.port
+                );
+                info.port
+            } else {
+                tracing::warn!("Instance ID {} not found in registry, using provided port {}", id, port);
+                port
+            }
+        } else {
+            port
+        }
+    } else {
+        // 董事长实例：使用配置的端口
+        port
+    };
+    
     // Pre-flight: check if port is already in use by another multiclaw daemon
-    if let Err(_e) = check_port_available(&host, port).await {
+    if let Err(_e) = check_port_available(&host, actual_port).await {
         // Port is in use - check if it's our daemon
-        if is_multiclaw_daemon_running(&host, port).await {
-            tracing::info!("MultiClaw daemon already running on {host}:{port}");
-            println!("✓ MultiClaw daemon already running on http://{host}:{port}");
+        if is_multiclaw_daemon_running(&host, actual_port).await {
+            tracing::info!("MultiClaw daemon already running on {host}:{actual_port}");
+            println!("✓ MultiClaw daemon already running on http://{host}:{actual_port}");
             println!("  Use 'multiclaw restart' to restart, or 'multiclaw status' to check health.");
             return Ok(());
         }
         // Something else is using the port
         bail!(
-            "Port {port} is already in use by another process. \
-             Run 'lsof -i :{port}' to identify it, or use a different port."
+            "Port {actual_port} is already in use by another process. \
+             Run 'lsof -i :{actual_port}' to identify it, or use a different port."
         );
     }
 
@@ -45,9 +76,24 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
     // 初始化实例管理器和配置管理器
-    let instance_manager = Arc::new(InstanceManager::new());
+    let instance_manager = Arc::new(InstanceManager::with_registry(registry_manager.clone()));
     let config_manager = Arc::new(ConfigManager::new(config.workspace_dir.clone()).await
         .map_err(|e| anyhow::anyhow!("Failed to create ConfigManager: {}", e))?);
+
+    // 如果是董事长实例，注册到全局注册表
+    if !is_company_instance {
+        let chairman_info = ChairmanInfo {
+            instance_id: format!("chairman_{}", uuid::Uuid::new_v4()),
+            port: actual_port,
+            data_dir: config.workspace_dir.clone(),
+            pid: Some(std::process::id()),
+            status: RegistryInstanceStatus::Running,
+            started_at: Utc::now(),
+            last_heartbeat: Utc::now(),
+        };
+        registry_manager.register_chairman(chairman_info).await;
+        tracing::info!("Registered chairman instance on port {}", actual_port);
+    }
 
     // 尝试加载董事长配置文件，如果不存在则使用默认配置
     let chairman_config_path = config.workspace_dir.join("chairman_config.toml");
@@ -110,7 +156,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
                 let chairman_inner = chairman_clone.clone();
                 async move { 
                     // 将董事长 Agent 注入到网关配置中（如果需要）
-                    crate::gateway::run_gateway(&host, port, cfg).await 
+                    crate::gateway::run_gateway(&host, actual_port, cfg).await 
                 }
             },
         ));
@@ -164,7 +210,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     }
 
     println!("🧠 MultiClaw daemon started");
-    println!("   Gateway:  http://{host}:{port}");
+    println!("   Gateway:  http://{host}:{actual_port}");
     println!("   Components: gateway, channels, heartbeat, scheduler");
     println!("   Ctrl+C to stop");
 

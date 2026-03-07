@@ -8,6 +8,8 @@ use uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 
+use super::registry::{RegistryManager, CompanyInstanceInfo, RegistryInstanceStatus};
+
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub enum InstanceType {
     MarketResearch,
@@ -83,8 +85,8 @@ pub struct InstanceManager {
     processes: Arc<RwLock<HashMap<String, ProcessInfo>>>,
     /// 实例状态快照 (用于序列化)
     states: Arc<RwLock<HashMap<String, InstanceState>>>,
-    /// 下一个可用端口
-    next_port: Arc<RwLock<u16>>,
+    /// 全局注册表管理器（用于端口分配和持久化）
+    registry: Arc<RegistryManager>,
     /// 实例配置模板
     config_templates: HashMap<InstanceType, InstanceConfig>,
 }
@@ -94,9 +96,29 @@ impl InstanceManager {
         Self {
             processes: Arc::new(RwLock::new(HashMap::new())),
             states: Arc::new(RwLock::new(HashMap::new())),
-            next_port: Arc::new(RwLock::new(8001)), // 从 8001 开始分配端口
+            registry: Arc::new(RegistryManager::new()),
             config_templates: Self::create_config_templates(),
         }
+    }
+
+    /// 使用现有的注册表管理器创建
+    pub fn with_registry(registry: Arc<RegistryManager>) -> Self {
+        Self {
+            processes: Arc::new(RwLock::new(HashMap::new())),
+            states: Arc::new(RwLock::new(HashMap::new())),
+            registry,
+            config_templates: Self::create_config_templates(),
+        }
+    }
+
+    /// 获取注册表管理器
+    pub fn registry(&self) -> Arc<RegistryManager> {
+        self.registry.clone()
+    }
+
+    /// 初始化时加载注册表
+    pub async fn load_registry(&self) {
+        self.registry.load().await;
     }
 
     /// 创建实例配置模板
@@ -218,18 +240,35 @@ impl InstanceManager {
         let mut states = self.states.write().await;
         states.insert(instance_id.clone(), instance_state);
 
+        // 注册到全局注册表
+        let registry_info = CompanyInstanceInfo {
+            instance_id: instance_id.clone(),
+            company_name: config.name.clone(),
+            company_type: format!("{:?}", config.instance_type),
+            port: config.port,
+            data_dir: std::path::PathBuf::from(&config.data_dir),
+            config_path: std::path::PathBuf::from(&config.config_file),
+            pid: Some(pid),
+            status: RegistryInstanceStatus::Running,
+            created_at: Utc::now(),
+            started_at: Utc::now(),
+            last_heartbeat: Utc::now(),
+            ceo_model: config.ceo_config.model_preference.clone(),
+            ceo_personality: config.ceo_config.personality.clone(),
+            token_quota: config.resource_quota.tokens_per_minute,
+            max_agents: config.resource_quota.max_concurrent_agents,
+        };
+        self.registry.register_company(registry_info).await;
+
         // 启动监控任务
         self.start_monitoring(instance_id.clone()).await;
         
         Ok(instance_id)
     }
 
-    /// 分配下一个可用端口
+    /// 分配下一个可用端口（使用全局注册表）
     async fn assign_port(&self) -> u16 {
-        let mut next_port = self.next_port.write().await;
-        let port = *next_port;
-        *next_port += 1;
-        port
+        self.registry.allocate_port().await
     }
 
     /// 生成实例配置文件
